@@ -1,7 +1,9 @@
 package io.geekya215.lamination;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 // |        entries        |           offsets         |               |
 // |entry|entry|entry|entry|offset|offset|offset|offset|num_of_elements|
@@ -15,6 +17,41 @@ public final class Block {
     private Block(List<Entry> entries, List<Short> offsets) {
         this.entries = entries;
         this.offsets = offsets;
+    }
+
+    public static Block decode(Bytes bytes) {
+        byte[] values = bytes.values();
+        int length = bytes.length();
+        int numOfEntry =
+            ((values[length - SIZE_OF_U16] & 0xff) << 8) + (values[length - SIZE_OF_U16 + 1] & 0xff);
+        List<Entry> entries = new ArrayList<>(numOfEntry);
+        List<Short> offsets = new ArrayList<>(numOfEntry);
+
+        int offsetEndIdx = length - SIZE_OF_U16;
+        int entriesEndIdx = offsetEndIdx - numOfEntry * SIZE_OF_U16;
+
+        for (int i = entriesEndIdx; i < offsetEndIdx; i += 2) {
+            short offset = (short) (((values[i] & 0xff) << 8) | (values[i + 1] & 0xff));
+            offsets.add(offset);
+        }
+
+        for (int i = 0; i < entriesEndIdx; ) {
+            int keyLength = ((values[i] & 0xff) << 8) + (values[i + 1] & 0xff);
+            int valueLength = ((values[i + 2] & 0xff) << 8) + (values[i + 3] & 0xff);
+
+            int keyStartIdx = i + 4;
+            int keyEndIdx = i + 4 + keyLength;
+            int valueEndIdx = keyEndIdx + valueLength;
+
+            Bytes key = bytes.slice(keyStartIdx, keyEndIdx);
+            Bytes value = bytes.slice(keyEndIdx, valueEndIdx);
+
+            i += (4 + keyLength + valueLength);
+
+            entries.add(new Entry(key, value));
+        }
+
+        return new Block(entries, offsets);
     }
 
     public List<Entry> getEntries() {
@@ -61,44 +98,13 @@ public final class Block {
         return Bytes.of(bytes);
     }
 
-    public static Block decode(Bytes bytes) {
-        byte[] values = bytes.values();
-        int length = bytes.length();
-        int numOfEntry =
-            ((values[length - SIZE_OF_U16] & 0xff) << 8) + (values[length - SIZE_OF_U16 + 1] & 0xff);
-        List<Entry> entries = new ArrayList<>(numOfEntry);
-        List<Short> offsets = new ArrayList<>(numOfEntry);
-
-        int offsetEndIdx = length - SIZE_OF_U16;
-        int entriesEndIdx = offsetEndIdx - numOfEntry * SIZE_OF_U16;
-
-        for (int i = entriesEndIdx; i < offsetEndIdx; i += 2) {
-            short offset = (short) (((values[i] & 0xff) << 8) | (values[i + 1] & 0xff));
-            offsets.add(offset);
-        }
-
-        for (int i = 0; i < entriesEndIdx; ) {
-            int keyLength = ((values[i] & 0xff) << 8) + (values[i + 1] & 0xff);
-            int valueLength = ((values[i + 2] & 0xff) << 8) + (values[i + 3] & 0xff);
-
-            int keyStartIdx = i + 4;
-            int keyEndIdx = i + 4 + keyLength;
-            int valueEndIdx = keyEndIdx + valueLength;
-
-            Bytes key = bytes.slice(keyStartIdx, keyEndIdx);
-            Bytes value = bytes.slice(keyEndIdx, valueEndIdx);
-
-            i += (4 + keyLength + valueLength);
-
-            entries.add(new Entry(key, value));
-        }
-
-        return new Block(entries, offsets);
-    }
-
     // |                             entry                             |
     // | key_len (2B) | value_len (2B) | key (keylen) | value (varlen) |
-    record Entry(Bytes key, Bytes value) implements Comparable<Entry> {
+    public record Entry(Bytes key, Bytes value) implements Comparable<Entry> {
+        public static Entry of(Bytes key, Bytes value) {
+            return new Entry(key, value);
+        }
+
         int keyLength() {
             return key.length();
         }
@@ -120,8 +126,8 @@ public final class Block {
     public static final class BlockBuilder {
         private final List<Entry> entries;
         private final List<Short> offsets;
-        private int currentSize;
         private final int blockSize;
+        private int currentSize;
 
         public BlockBuilder() {
             this(DEFAULT_BLOCK_SIZE);
@@ -158,6 +164,56 @@ public final class Block {
                 throw new IllegalArgumentException("block should not be empty");
             }
             return new Block(entries, offsets);
+        }
+    }
+
+    public static final class BlockIterator implements Iterator<Entry> {
+        private final List<Entry> entries;
+        private int cursor;
+
+        public BlockIterator(Block block) {
+            this.entries = block.entries;
+            this.cursor = 0;
+        }
+
+        @Override
+        public boolean hasNext() {
+            return cursor < entries.size();
+        }
+
+        @Override
+        public Entry next() {
+            if (cursor >= entries.size()) {
+                throw new NoSuchElementException();
+            }
+            return entries.get(cursor++);
+        }
+
+        public Entry seekTo(int index) {
+            if (index >= entries.size()) {
+                throw new NoSuchElementException();
+            }
+            return entries.get(cursor = index);
+        }
+
+        public Entry seekToKey(Bytes key) {
+            int low = 0;
+            int high = entries.size();
+
+            while (low < high) {
+                int mid = low + (high - low) / 2;
+                Entry entry = entries.get(mid);
+                int cmp = entry.key.compareTo(key);
+                if (cmp < 0) {
+                    low = mid + 1;
+                } else if (cmp == 0) {
+                    return entry;
+                } else {
+                    high = mid;
+                }
+            }
+
+            throw new NoSuchElementException("could not find key " + key);
         }
     }
 }
