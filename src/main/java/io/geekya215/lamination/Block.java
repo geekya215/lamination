@@ -5,12 +5,12 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
+import static io.geekya215.lamination.Constant.DEFAULT_BLOCK_SIZE;
+import static io.geekya215.lamination.Constant.SIZE_OF_U16;
+
 // |        entries        |           offsets         |               |
 // |entry|entry|entry|entry|offset|offset|offset|offset|num_of_elements|
 public final class Block {
-    static final int SIZE_OF_U16 = 2;
-    static final int DEFAULT_BLOCK_SIZE = 1024;
-
     private final List<Entry> entries;
     private final List<Short> offsets;
 
@@ -23,7 +23,7 @@ public final class Block {
         byte[] values = bytes.values();
         int length = bytes.length();
         int numOfEntry =
-            ((values[length - SIZE_OF_U16] & 0xff) << 8) + (values[length - SIZE_OF_U16 + 1] & 0xff);
+            ((values[length - SIZE_OF_U16] & 0xff) << 8) | (values[length - SIZE_OF_U16 + 1] & 0xff);
         List<Entry> entries = new ArrayList<>(numOfEntry);
         List<Short> offsets = new ArrayList<>(numOfEntry);
 
@@ -36,8 +36,8 @@ public final class Block {
         }
 
         for (int i = 0; i < entriesEndIdx; ) {
-            int keyLength = ((values[i] & 0xff) << 8) + (values[i + 1] & 0xff);
-            int valueLength = ((values[i + 2] & 0xff) << 8) + (values[i + 3] & 0xff);
+            int keyLength = ((values[i] & 0xff) << 8) | (values[i + 1] & 0xff);
+            int valueLength = ((values[i + 2] & 0xff) << 8) | (values[i + 3] & 0xff);
 
             int keyStartIdx = i + 4;
             int keyEndIdx = i + 4 + keyLength;
@@ -62,10 +62,18 @@ public final class Block {
         return offsets;
     }
 
+    public int estimateSize() {
+        return entries.stream().map(Entry::length).reduce(0, Integer::sum)
+            + offsets.size() * SIZE_OF_U16
+            + SIZE_OF_U16;
+    }
+
+    public Bytes getFirstKey() {
+        return entries.get(0).key;
+    }
+
     public Bytes encode() {
-        int entriesSize = entries.stream().map(Entry::length).reduce(0, Integer::sum);
-        int offsetsSize = offsets.size() * SIZE_OF_U16;
-        List<Byte> bytes = new ArrayList<>(entriesSize + offsetsSize + SIZE_OF_U16);
+        List<Byte> bytes = new ArrayList<>(estimateSize());
 
         for (Entry entry : entries) {
             int keyLength = entry.keyLength();
@@ -159,11 +167,17 @@ public final class Block {
             return true;
         }
 
+        public void reset() {
+            entries.clear();
+            offsets.clear();
+            currentSize = 0;
+        }
+
         public Block build() {
             if (entries.size() == 0) {
                 throw new IllegalArgumentException("block should not be empty");
             }
-            return new Block(entries, offsets);
+            return new Block(List.copyOf(entries), List.copyOf(offsets));
         }
     }
 
