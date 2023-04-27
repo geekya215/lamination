@@ -55,11 +55,12 @@ public final class Block {
 
         crc.update(bytes, 0, blockSize - 4);
         int checkSum = (int) crc.getValue();
+        crc.reset();
+
         bytes[index++] = (byte) (checkSum >> 24);
         bytes[index++] = (byte) (checkSum >> 16);
         bytes[index++] = (byte) (checkSum >> 8);
         bytes[index] = (byte) checkSum;
-        crc.reset();
 
         return Bytes.of(bytes);
     }
@@ -185,7 +186,9 @@ public final class Block {
 
             int valueLength = value.length();
             int entrySize = 2 * SIZE_OF_U16 + keyLength + valueLength;
-            if (currentSize + entrySize + SIZE_OF_U16 > blockSize) {
+
+            // entry size + num of elements(2B) + crc(4B)
+            if (currentSize + entrySize + SIZE_OF_U16 + SIZE_OF_U32 > blockSize) {
                 return false;
             }
 
