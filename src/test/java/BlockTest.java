@@ -1,6 +1,4 @@
 import io.geekya215.lamination.Block;
-import io.geekya215.lamination.Bytes;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.NoSuchElementException;
@@ -19,15 +17,15 @@ public class BlockTest {
     @Test
     void testBuildBlockWithSingleKey() {
         Block.BlockBuilder builder = new Block.BlockBuilder(16);
-        assertTrue(builder.put(Bytes.of("22".getBytes()), Bytes.of("333".getBytes())));
+        assertTrue(builder.put("22".getBytes(), "33".getBytes()));
         builder.build();
     }
 
     @Test
     void testBuildBlockFull() {
         Block.BlockBuilder builder = new Block.BlockBuilder(16);
-        assertTrue(builder.put(Bytes.of("22".getBytes()), Bytes.of("333".getBytes())));
-        assertFalse(builder.put(Bytes.of("22".getBytes()), Bytes.of("333".getBytes())));
+        assertTrue(builder.put("22".getBytes(), "33".getBytes()));
+        assertFalse(builder.put("22".getBytes(), "33".getBytes()));
         builder.build();
     }
 
@@ -36,7 +34,7 @@ public class BlockTest {
         for (int i = 0; i < 100; i++) {
             byte[] key = keyOf(i);
             byte[] value = valueOf(i);
-            Assertions.assertTrue(builder.put(Bytes.of(key), Bytes.of(value)));
+            assertTrue(builder.put(key, value));
         }
 
         return builder.build();
@@ -56,10 +54,10 @@ public class BlockTest {
     @Test
     void testBlockDecode() {
         Block block = generateBlock();
-        Bytes encode = block.encode();
+        byte[] encode = block.encode();
         Block decodeBlock = Block.decode(encode);
-        Assertions.assertEquals(block.getOffsets(), decodeBlock.getOffsets());
-        Assertions.assertEquals(block.getEntries(), decodeBlock.getEntries());
+        assertEquals(block.offsets(), decodeBlock.offsets());
+        assertEquals(block.entries(), decodeBlock.entries());
     }
 
     @Test
@@ -69,13 +67,13 @@ public class BlockTest {
         int i = 0;
         while (iter.hasNext()) {
             Block.Entry entry = iter.next();
-            assertEquals(Block.Entry.of(Bytes.of(keyOf(i)), Bytes.of(valueOf(i))), entry);
+            assertEquals(new Block.Entry(keyOf(i), valueOf(i)), entry);
             i++;
         }
 
         for (int j = 0; j < 100; j++) {
             Block.Entry entry = iter.seekTo(j);
-            assertEquals(Block.Entry.of(Bytes.of(keyOf(j)), Bytes.of(valueOf(j))), entry);
+            assertEquals(new Block.Entry(keyOf(j), valueOf(j)), entry);
         }
     }
 
@@ -84,12 +82,12 @@ public class BlockTest {
         Block block = generateBlock();
         Block.BlockIterator iter = new Block.BlockIterator(block);
         for (int i = 0; i < 100; i += 5) {
-            Block.Entry entry = iter.seekToKey(Bytes.of(keyOf(i)));
-            assertEquals(Bytes.of(keyOf(i)), entry.key());
+            Block.Entry entry = iter.seekToKey(keyOf(i));
+            assertArrayEquals(keyOf(i), entry.key());
         }
 
         assertThrows(NoSuchElementException.class, () -> {
-            iter.seekToKey(Bytes.of(keyOf(114514)));
+            iter.seekToKey(keyOf(114514));
         });
     }
 }
