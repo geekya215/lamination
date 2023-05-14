@@ -15,6 +15,18 @@ public class BlockTest {
     }
 
     @Test
+    void testBuildEmptyBlock() {
+        Block.BlockBuilder builder = new Block.BlockBuilder(16);
+        assertThrows(IllegalStateException.class, builder::build);
+    }
+
+    @Test
+    void testBuildBlockWithLargeKey() {
+        Block.BlockBuilder builder = new Block.BlockBuilder(16);
+        assertThrows(IllegalArgumentException.class, () -> builder.put("114514".getBytes(), "1919810".getBytes()));
+    }
+
+    @Test
     void testBuildBlockWithSingleKey() {
         Block.BlockBuilder builder = new Block.BlockBuilder(16);
         assertTrue(builder.put("22".getBytes(), "33".getBytes()));
@@ -56,24 +68,30 @@ public class BlockTest {
         Block block = generateBlock();
         byte[] encode = block.encode();
         Block decodeBlock = Block.decode(encode);
-        assertEquals(block.offsets(), decodeBlock.offsets());
-        assertEquals(block.entries(), decodeBlock.entries());
+        assertArrayEquals(block.getOffsets(), decodeBlock.getOffsets());
+        assertArrayEquals(block.getData(), decodeBlock.getData());
     }
 
     @Test
     void testBlockIterator() {
         Block block = generateBlock();
-        Block.BlockIterator iter = new Block.BlockIterator(block);
+        Block.BlockIterator iter = Block.BlockIterator.createAndSeekToFirst(block);
         int i = 0;
-        while (iter.hasNext()) {
-            Block.Entry entry = iter.next();
-            assertEquals(new Block.Entry(keyOf(i), valueOf(i)), entry);
+        while (iter.isValid()) {
+            byte[] key = iter.getKey();
+            byte[] value = iter.getValue();
+            assertArrayEquals(keyOf(i), key);
+            assertArrayEquals(valueOf(i), value);
+            iter.next();
             i++;
         }
 
         for (int j = 0; j < 100; j++) {
-            Block.Entry entry = iter.seekTo(j);
-            assertEquals(new Block.Entry(keyOf(j), valueOf(j)), entry);
+            iter.seekTo(j);
+            byte[] key = iter.getKey();
+            byte[] value = iter.getValue();
+            assertArrayEquals(keyOf(j), key);
+            assertArrayEquals(valueOf(j), value);
         }
     }
 
@@ -82,12 +100,13 @@ public class BlockTest {
         Block block = generateBlock();
         Block.BlockIterator iter = new Block.BlockIterator(block);
         for (int i = 0; i < 100; i += 5) {
-            Block.Entry entry = iter.seekToKey(keyOf(i));
-            assertArrayEquals(keyOf(i), entry.key());
+            iter.seekToKey(keyOf(i));
+            byte[] key = iter.getKey();
+            byte[] value = iter.getValue();
+            assertArrayEquals(keyOf(i), key);
+            assertArrayEquals(valueOf(i), value);
         }
 
-        assertThrows(NoSuchElementException.class, () -> {
-            iter.seekToKey(keyOf(114514));
-        });
+        assertThrows(NoSuchElementException.class, () -> iter.seekToKey(keyOf(114514)));
     }
 }
