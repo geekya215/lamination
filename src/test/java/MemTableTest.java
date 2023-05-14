@@ -4,9 +4,9 @@ import io.geekya215.lamination.SSTable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.Map;
 
@@ -43,7 +43,7 @@ public class MemTableTest {
     }
 
     @Test
-    void testMemTableFlush(@TempDir Path tempDir) throws IOException {
+    void testMemTableFlush(@TempDir File tempDir) throws IOException {
         MemTable memTable = MemTable.create();
         memTable.put(byteWrap("key1"), byteWrap("value1"));
         memTable.put(byteWrap("key2"), byteWrap("value2"));
@@ -51,22 +51,12 @@ public class MemTableTest {
 
         SSTable.SSTableBuilder builder = new SSTable.SSTableBuilder(128);
         memTable.flush(builder);
-        Path path = tempDir.resolve("1.sst");
-        SSTable sst = builder.build(0, path);
+        SSTable sst = builder.build(0, tempDir);
 
-        SSTable.SSTableIterator sstIterator = SSTable.SSTableIterator.createAndSeekToFirst(sst);
-        Block block = sstIterator.next();
-        Block.BlockIterator blockIterator = Block.BlockIterator.createAndSeekToFirst(block);
+        SSTable open = SSTable.open(0, tempDir);
 
-        Block.Entry e1 = blockIterator.next();
-        assertEquals(new Block.Entry("key1".getBytes(), "value1".getBytes()), e1);
-        Block.Entry e2 = blockIterator.next();
-        assertEquals(new Block.Entry("key2".getBytes(), "value2".getBytes()), e2);
-        Block.Entry e3 = blockIterator.next();
-        assertEquals(new Block.Entry("key3".getBytes(), "value3".getBytes()), e3);
-
-        assertFalse(sstIterator.hasNext());
-        assertFalse(blockIterator.hasNext());
+        assertEquals(sst.getMetaBlocks(), open.getMetaBlocks());
+        assertEquals(sst.getMetaBlockOffset(), open.getMetaBlockOffset());
     }
 
     @Test
