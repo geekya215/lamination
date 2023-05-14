@@ -1,25 +1,17 @@
-import io.geekya215.lamination.Block;
 import io.geekya215.lamination.SSTable;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.File;
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class SSTableTest {
-    Path dir;
-
     @TempDir
-    Path tempDir;
-
-    @BeforeEach
-    void setUp() {
-        dir = tempDir.resolve("1.sst");
-    }
+    File tempDir;
 
     byte[] keyOf(int i) {
         return String.format("key_%03d", i * 5).getBytes();
@@ -33,7 +25,7 @@ public class SSTableTest {
     void testBuildSSTWithSingleKey() throws IOException {
         SSTable.SSTableBuilder builder = new SSTable.SSTableBuilder(16);
         builder.put("22".getBytes(), "33".getBytes());
-        SSTable sst = builder.build(0, dir);
+        builder.build(0, tempDir);
     }
 
     @Test
@@ -45,7 +37,7 @@ public class SSTableTest {
         builder.put("44".getBytes(), "44".getBytes());
         builder.put("55".getBytes(), "55".getBytes());
         builder.put("66".getBytes(), "66".getBytes());
-        SSTable sst = builder.build(0, dir);
+        builder.build(0, tempDir);
     }
 
     @Test
@@ -54,16 +46,15 @@ public class SSTableTest {
         for (int i = 0; i < 100; i++) {
             builder.put(keyOf(i), valueOf(i));
         }
-        SSTable sst = builder.build(0, dir);
-        return sst;
+        return builder.build(0, tempDir);
     }
 
     @Test
     void testDecodeSST() throws IOException {
         SSTable sst = generateSST();
-        List<SSTable.MetaBlock> metaBlocks = sst.metaBlocks();
-        SSTable open = SSTable.open(0, sst.file());
-        assertEquals(metaBlocks, open.metaBlocks());
+        List<SSTable.MetaBlock> metaBlocks = sst.getMetaBlocks();
+        SSTable open = SSTable.open(0, tempDir);
+        assertEquals(metaBlocks, open.getMetaBlocks());
     }
 
     @Test
@@ -71,15 +62,12 @@ public class SSTableTest {
         SSTable sst = generateSST();
         SSTable.SSTableIterator iterator = SSTable.SSTableIterator.createAndSeekToFirst(sst);
         for (int i = 0; i < 5; i++) {
-            int index = 0;
-            while (iterator.hasNext()) {
-                Block block = iterator.next();
-                Block.BlockIterator blockIterator = Block.BlockIterator.createAndSeekToFirst(block);
-                while (blockIterator.hasNext()) {
-                    Block.Entry entry = blockIterator.next();
-                    assertEquals(new Block.Entry(keyOf(index), valueOf(index)), entry);
-                    index++;
-                }
+            for (int j = 0; j < 100; j++) {
+                byte[] key = iterator.key();
+                byte[] value = iterator.value();
+                assertArrayEquals(keyOf(j), key);
+                assertArrayEquals(valueOf(j), value);
+                iterator.next();
             }
             iterator.seekToFirst();
         }
@@ -88,15 +76,16 @@ public class SSTableTest {
     @Test
     void testSSTIteratorSeekToKey() throws IOException {
         SSTable sst = generateSST();
+        SSTable.SSTableIterator iterator = SSTable.SSTableIterator.createAndSeekToKey(sst, keyOf(0));
         for (int offset = 0; offset < 5; offset++) {
             for (int i = 0; i < 100; i++) {
-                byte[] key = String.format("key_%03d", i * 5 + offset).getBytes();
-                SSTable.SSTableIterator sstIterator = SSTable.SSTableIterator.createAndSeekToKey(sst, key);
-                Block block = sstIterator.next();
-                Block.BlockIterator blockIterator = Block.BlockIterator.createAndSeekToKey(block, keyOf(i));
-                Block.Entry entry = blockIterator.next();
-                assertEquals(new Block.Entry(keyOf(i), valueOf(i)), entry);
+                iterator.seekToKey(keyOf(i));
+                byte[] key = iterator.key();
+                byte[] value = iterator.value();
+                assertArrayEquals(keyOf(i), key);
+                assertArrayEquals(valueOf(i), value);
             }
+            iterator.seekToKey(keyOf(0));
         }
     }
 }

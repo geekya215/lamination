@@ -1,69 +1,92 @@
 package io.geekya215.lamination;
 
+import io.geekya215.lamination.util.Preconditions;
+
 import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
-import static io.geekya215.lamination.Constant.*;
+import static io.geekya215.lamination.Constants.*;
+import static io.geekya215.lamination.Options.DEFAULT_BLOCK_SIZE;
+import static io.geekya215.lamination.util.FileUtil.*;
 
+
+//
 //  -----------------------------------------------------------------------------
 // |                                   SST                                       |
 // |-----------------------------------------------------------------------------|
-// | data block | data block | meta block | meta block | meta block offset (u32) |
+// |  magic(8B) | data block | data block | data block | meta block | meta block |
 //  -----------------------------------------------------------------------------
-public final class SSTable {
-    private final int id;
-    private final File file;
+//
+public final class SSTable implements Closeable {
+    private final long id;
+    private final RandomAccessFile file;
     private final List<MetaBlock> metaBlocks;
     private final int metaBlockOffset;
 
-    public SSTable(int id, File file, List<MetaBlock> metaBlocks, int metaBlockOffset) {
+    public SSTable(long id, RandomAccessFile file, List<MetaBlock> metaBlocks, int metaBlockOffset) {
         this.id = id;
         this.file = file;
         this.metaBlocks = metaBlocks;
         this.metaBlockOffset = metaBlockOffset;
     }
 
-    public File file() {
-        return file;
+    public SSTable(long id, File baseDir, List<MetaBlock> metaBlocks, int metaBlockOffset) throws IOException {
+        this.id = id;
+        this.file = new RandomAccessFile(makeSSTableFile(baseDir, id), "r");
+        this.metaBlocks = metaBlocks;
+        this.metaBlockOffset = metaBlockOffset;
     }
 
-    public List<MetaBlock> metaBlocks() {
+    public List<MetaBlock> getMetaBlocks() {
         return metaBlocks;
     }
 
-    public int metaBlockOffset() {
+    public int getMetaBlockOffset() {
         return metaBlockOffset;
     }
 
-    public static SSTable open(int id, File file) throws IOException {
-        int fileSize = (int) file.length();
-        try (RandomAccessFile randomAccessFile = new RandomAccessFile(file, "r")) {
-            randomAccessFile.seek(fileSize - 4);
-            int metaBlockOffset = randomAccessFile.readInt();
-
-            randomAccessFile.seek(metaBlockOffset);
-            int metaBlocksSize = fileSize - metaBlockOffset - 4;
-            byte[] metaBlocksBytes = new byte[metaBlocksSize];
-            randomAccessFile.readFully(metaBlocksBytes);
-
-            List<MetaBlock> metaBlocks = new ArrayList<>();
-            int index = 0;
-            while (index < metaBlocksSize) {
-                int offset = (metaBlocksBytes[index] & 0xff) << 24
-                    | (metaBlocksBytes[index + 1] & 0xff) << 16
-                    | (metaBlocksBytes[index + 2] & 0xff) << 8
-                    | (metaBlocksBytes[index + 3] & 0xff);
-                int keySize = (metaBlocksBytes[index + 4] & 0xff << 8) | (metaBlocksBytes[index + 5] & 0xff);
-                byte[] firstKey = new byte[keySize];
-                System.arraycopy(metaBlocksBytes, index + 6, firstKey, 0, keySize);
-                index += (6 + keySize);
-                metaBlocks.add(new MetaBlock(offset, firstKey));
-            }
-
-            return new SSTable(id, file, metaBlocks, metaBlockOffset);
+    public static SSTable open(long id, File baseDir) throws IOException {
+        Preconditions.checkState(baseDir.exists() && baseDir.isDirectory());
+        String filename = makeFileName(id, SST_FILE_SUFFIX);
+        File file = new File(baseDir, filename);
+        if (!file.exists()) {
+            throw new FileNotFoundException();
         }
+        RandomAccessFile randomAccessFile = new RandomAccessFile(file, "r");
+        byte[] magic = new byte[8];
+        randomAccessFile.readFully(magic);
+        int cmp = Arrays.compare(MAGIC, magic);
+        if (cmp != 0) {
+            throw new RuntimeException("invalid sst file format");
+        }
+
+        int fileSize = (int) file.length();
+        randomAccessFile.seek(fileSize - SIZE_OF_U32);
+        int metaBlockOffset = randomAccessFile.readInt();
+
+        randomAccessFile.seek(metaBlockOffset);
+        int metaBlocksSize = fileSize - metaBlockOffset - SIZE_OF_U32;
+        byte[] metaBlocksBytes = new byte[metaBlocksSize];
+        randomAccessFile.readFully(metaBlocksBytes);
+
+        List<MetaBlock> metaBlocks = new ArrayList<>();
+        int index = 0;
+        while (index < metaBlocksSize) {
+            int offset = (metaBlocksBytes[index] & 0xff) << 24
+                | (metaBlocksBytes[index + 1] & 0xff) << 16
+                | (metaBlocksBytes[index + 2] & 0xff) << 8
+                | (metaBlocksBytes[index + 3] & 0xff);
+            int keySize = (metaBlocksBytes[index + 4] & 0xff << 8) | (metaBlocksBytes[index + 5] & 0xff);
+            byte[] firstKey = new byte[keySize];
+            System.arraycopy(metaBlocksBytes, index + 6, firstKey, 0, keySize);
+            index += (6 + keySize);
+            metaBlocks.add(new MetaBlock(offset, firstKey));
+        }
+
+        randomAccessFile.seek(0);
+        return new SSTable(id, randomAccessFile, metaBlocks, metaBlockOffset);
     }
 
     public Block readBlock(int blockIndex) throws IOException {
@@ -75,12 +98,9 @@ public final class SSTable {
         } else {
             offsetEnd = metaBlocks.get(blockIndex + 1).offset;
         }
-
         byte[] bytes = new byte[offsetEnd - offset];
-        try (RandomAccessFile randomAccessFile = new RandomAccessFile(file, "r")) {
-            randomAccessFile.seek(offset);
-            randomAccessFile.readFully(bytes);
-        }
+        file.seek(offset);
+        file.readFully(bytes);
 
         return Block.decode(bytes);
     }
@@ -96,11 +116,18 @@ public final class SSTable {
         return i == 0 ? 0 : i - 1;
     }
 
+    @Override
+    public void close() throws IOException {
+        file.close();
+    }
+
+    //
     //  ------------------------------------------
     // |             |          first key         |
     // |------------------------------------------|
     // | offset (4B) | keylen (2B) | key (keylen) |
     //  ------------------------------------------
+    //
     public record MetaBlock(int offset, byte[] firstKey) implements Measurable {
         public byte[] encode() {
             int keySize = firstKey.length;
@@ -119,7 +146,8 @@ public final class SSTable {
         }
 
         public static MetaBlock decode(byte[] bytes) {
-            int offset = (bytes[0] & 0xff) << 24
+            int offset
+                = (bytes[0] & 0xff) << 24
                 | (bytes[1] & 0xff) << 16
                 | (bytes[2] & 0xff) << 8
                 | (bytes[3] & 0xff);
@@ -167,7 +195,8 @@ public final class SSTable {
             this.blockBuilder = new Block.BlockBuilder(blockSize);
             this.blocks = new ArrayList<>();
             this.metaBlocks = new ArrayList<>();
-            this.currentBlockOffset = 0;
+            // offset for magic number(8B)
+            this.currentBlockOffset = SIZE_OF_U64;
         }
 
         public void put(byte[] key, byte[] value) {
@@ -188,10 +217,14 @@ public final class SSTable {
             blockBuilder.reset();
         }
 
-        File persist(Path path) throws IOException {
-            File file = Files.createFile(path).toFile();
+        public SSTable build(long id, File baseDir) throws IOException {
+            generateBlock();
+
+            Preconditions.checkState(baseDir.exists() && baseDir.isDirectory());
+            File file = makeFile(baseDir, makeFileName(id, SST_FILE_SUFFIX));
 
             try (FileOutputStream fos = new FileOutputStream(file)) {
+                fos.write(Constants.MAGIC);
 
                 for (Block block : blocks) {
                     fos.write(block.encode());
@@ -209,82 +242,70 @@ public final class SSTable {
 
                 fos.write(metaBlockOffset);
             }
-
-            return file;
-        }
-
-        public SSTable build(int id, Path path) throws IOException {
-            generateBlock();
-
-            File file = persist(path);
-            return new SSTable(id, file, metaBlocks, currentBlockOffset);
+            return new SSTable(id, baseDir, metaBlocks, currentBlockOffset);
         }
     }
 
-    public static final class SSTableIterator implements Iterator<Block> {
+    public static final class SSTableIterator {
         private final SSTable sst;
         private Block.BlockIterator blockIterator;
         private int blockIndex;
 
-        public SSTableIterator(SSTable sst, Block.BlockIterator iterator, int blockIndex) {
-            this.sst = sst;
-            this.blockIterator = iterator;
-            this.blockIndex = blockIndex;
-        }
-
-        public void setBlockIterator(Block.BlockIterator blockIterator) {
-            this.blockIterator = blockIterator;
-        }
-
         public static SSTableIterator createAndSeekToFirst(SSTable sst) throws IOException {
-            Block block = sst.readBlock(0);
-            Block.BlockIterator blockIterator = Block.BlockIterator.createAndSeekToFirst(block);
+            Block.BlockIterator blockIterator = Block.BlockIterator.createAndSeekToFirst(sst.readBlock(0));
             return new SSTableIterator(sst, blockIterator, 0);
         }
 
         public static SSTableIterator createAndSeekToKey(SSTable sst, byte[] key) throws IOException {
             int blockIndex = sst.findBlockIndex(key);
             Block block = sst.readBlock(blockIndex);
-            Block.BlockIterator blockIterator = null;
-            try {
-                blockIterator = Block.BlockIterator.createAndSeekToKey(block, key);
-            } catch (NoSuchElementException e) {
-                blockIterator = Block.BlockIterator.createAndSeekToFirst(block);
-            }
+            Block.BlockIterator blockIterator = Block.BlockIterator.createAndSeekToKey(block, key);
             return new SSTableIterator(sst, blockIterator, blockIndex);
         }
 
-        public Block seekToFirst() throws IOException {
-            Block block = sst.readBlock(0);
-            blockIterator = Block.BlockIterator.createAndSeekToFirst(block);
-            blockIndex = 0;
-            return block;
+        public byte[] key() {
+            return blockIterator.getKey();
         }
 
-        public Block seekToKey(byte[] key) throws IOException {
+        public byte[] value() {
+            return blockIterator.getValue();
+        }
+
+        public boolean isValid() {
+            return blockIterator.isValid();
+        }
+
+        public void next() throws IOException {
+            blockIterator.next();
+            if (!blockIterator.isValid()) {
+                blockIndex += 1;
+                if (blockIndex < sst.metaBlocks.size()) {
+                    blockIterator = Block.BlockIterator.createAndSeekToFirst(sst.readBlock(blockIndex));
+                }
+            }
+        }
+
+        public SSTableIterator(SSTable sst, Block.BlockIterator blockIterator, int blockIndex) {
+            this.sst = sst;
+            this.blockIterator = blockIterator;
+            this.blockIndex = blockIndex;
+        }
+
+        public SSTableIterator(SSTable sst) throws IOException {
+            this.sst = sst;
+            this.blockIterator = Block.BlockIterator.createAndSeekToFirst(sst.readBlock(0));
+            this.blockIndex = 0;
+        }
+
+        public void seekToFirst() throws IOException {
+            blockIndex = 0;
+            blockIterator = Block.BlockIterator.createAndSeekToFirst(sst.readBlock(0));
+        }
+
+        public void seekToKey(byte[] key) throws IOException {
             blockIndex = sst.findBlockIndex(key);
             Block block = sst.readBlock(blockIndex);
             blockIterator = Block.BlockIterator.createAndSeekToKey(block, key);
-            return block;
-        }
-
-        @Override
-        public boolean hasNext() {
-            return blockIndex < sst.metaBlocks.size();
-        }
-
-        @Override
-        public Block next() {
-            if (blockIndex >= sst.metaBlocks.size()) {
-                throw new NoSuchElementException();
-            }
-            try {
-                Block block = sst.readBlock(blockIndex++);
-                blockIterator = Block.BlockIterator.createAndSeekToFirst(block);
-                return block;
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
         }
     }
 }
