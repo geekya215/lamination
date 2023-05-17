@@ -16,5 +16,4 @@ public final class Constants {
     public static final int BYTE = 1;
     public static final int KB = BYTE << 10;
     public static final int MB = KB << 10;
-
 }

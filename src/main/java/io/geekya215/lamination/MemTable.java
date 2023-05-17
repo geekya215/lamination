@@ -16,7 +16,7 @@ public final class MemTable {
     }
 
     public static MemTable create() {
-       return new MemTable(new ConcurrentSkipListMap<>());
+        return new MemTable(new ConcurrentSkipListMap<>());
     }
 
     public ByteBuffer get(ByteBuffer key) {
