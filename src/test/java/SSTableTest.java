@@ -63,8 +63,8 @@ public class SSTableTest {
         SSTable.SSTableIterator iterator = SSTable.SSTableIterator.createAndSeekToFirst(sst);
         for (int i = 0; i < 5; i++) {
             for (int j = 0; j < 100; j++) {
-                byte[] key = iterator.key();
-                byte[] value = iterator.value();
+                byte[] key = iterator.getKey();
+                byte[] value = iterator.getValue();
                 assertArrayEquals(keyOf(j), key);
                 assertArrayEquals(valueOf(j), value);
                 iterator.next();
@@ -77,15 +77,16 @@ public class SSTableTest {
     void testSSTIteratorSeekToKey() throws IOException {
         SSTable sst = generateSST();
         SSTable.SSTableIterator iterator = SSTable.SSTableIterator.createAndSeekToKey(sst, keyOf(0));
-        for (int offset = 0; offset < 5; offset++) {
+        for (int offset = 1; offset <= 5; offset++) {
             for (int i = 0; i < 100; i++) {
                 iterator.seekToKey(keyOf(i));
-                byte[] key = iterator.key();
-                byte[] value = iterator.value();
+                byte[] key = iterator.getKey();
+                byte[] value = iterator.getValue();
                 assertArrayEquals(keyOf(i), key);
                 assertArrayEquals(valueOf(i), value);
+                iterator.seekToKey(String.format("key_%03d", i * 5 + offset).getBytes());
             }
-            iterator.seekToKey(keyOf(0));
+            iterator.seekToKey("k".getBytes());
         }
     }
 }

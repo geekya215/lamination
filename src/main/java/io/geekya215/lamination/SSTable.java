@@ -1,5 +1,6 @@
 package io.geekya215.lamination;
 
+import io.geekya215.lamination.exception.InvalidFormatException;
 import io.geekya215.lamination.util.Preconditions;
 
 import java.io.*;
@@ -10,7 +11,6 @@ import java.util.List;
 import static io.geekya215.lamination.Constants.*;
 import static io.geekya215.lamination.Options.DEFAULT_BLOCK_SIZE;
 import static io.geekya215.lamination.util.FileUtil.*;
-
 
 //
 //  -----------------------------------------------------------------------------
@@ -59,7 +59,7 @@ public final class SSTable implements Closeable {
         randomAccessFile.readFully(magic);
         int cmp = Arrays.compare(MAGIC, magic);
         if (cmp != 0) {
-            throw new RuntimeException("invalid sst file format");
+            throw new InvalidFormatException("invalid sst file format");
         }
 
         int fileSize = (int) file.length();
@@ -74,7 +74,8 @@ public final class SSTable implements Closeable {
         List<MetaBlock> metaBlocks = new ArrayList<>();
         int index = 0;
         while (index < metaBlocksSize) {
-            int offset = (metaBlocksBytes[index] & 0xff) << 24
+            int offset
+                = (metaBlocksBytes[index] & 0xff) << 24
                 | (metaBlocksBytes[index + 1] & 0xff) << 16
                 | (metaBlocksBytes[index + 2] & 0xff) << 8
                 | (metaBlocksBytes[index + 3] & 0xff);
@@ -234,13 +235,13 @@ public final class SSTable implements Closeable {
                     fos.write(metaBlock.encode());
                 }
 
-                byte[] metaBlockOffset = new byte[4];
-                metaBlockOffset[0] = (byte) (currentBlockOffset >> 24);
-                metaBlockOffset[1] = (byte) (currentBlockOffset >> 16);
-                metaBlockOffset[2] = (byte) (currentBlockOffset >> 8);
-                metaBlockOffset[3] = (byte) currentBlockOffset;
+                byte[] metaBlockOffsetBytes = new byte[4];
+                metaBlockOffsetBytes[0] = (byte) (currentBlockOffset >> 24);
+                metaBlockOffsetBytes[1] = (byte) (currentBlockOffset >> 16);
+                metaBlockOffsetBytes[2] = (byte) (currentBlockOffset >> 8);
+                metaBlockOffsetBytes[3] = (byte) currentBlockOffset;
 
-                fos.write(metaBlockOffset);
+                fos.write(metaBlockOffsetBytes);
             }
             return new SSTable(id, baseDir, metaBlocks, currentBlockOffset);
         }
@@ -263,11 +264,17 @@ public final class SSTable implements Closeable {
             return new SSTableIterator(sst, blockIterator, blockIndex);
         }
 
-        public byte[] key() {
+        public SSTableIterator(SSTable sst, Block.BlockIterator blockIterator, int blockIndex) {
+            this.sst = sst;
+            this.blockIterator = blockIterator;
+            this.blockIndex = blockIndex;
+        }
+
+        public byte[] getKey() {
             return blockIterator.getKey();
         }
 
-        public byte[] value() {
+        public byte[] getValue() {
             return blockIterator.getValue();
         }
 
@@ -283,18 +290,6 @@ public final class SSTable implements Closeable {
                     blockIterator = Block.BlockIterator.createAndSeekToFirst(sst.readBlock(blockIndex));
                 }
             }
-        }
-
-        public SSTableIterator(SSTable sst, Block.BlockIterator blockIterator, int blockIndex) {
-            this.sst = sst;
-            this.blockIterator = blockIterator;
-            this.blockIndex = blockIndex;
-        }
-
-        public SSTableIterator(SSTable sst) throws IOException {
-            this.sst = sst;
-            this.blockIterator = Block.BlockIterator.createAndSeekToFirst(sst.readBlock(0));
-            this.blockIndex = 0;
         }
 
         public void seekToFirst() throws IOException {
