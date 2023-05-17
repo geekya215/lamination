@@ -1,8 +1,6 @@
 import io.geekya215.lamination.Block;
 import org.junit.jupiter.api.Test;
 
-import java.util.NoSuchElementException;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 public class BlockTest {
@@ -98,15 +96,17 @@ public class BlockTest {
     @Test
     void testBlockIteratorSeekToKey() {
         Block block = generateBlock();
-        Block.BlockIterator iter = new Block.BlockIterator(block);
-        for (int i = 0; i < 100; i += 5) {
-            iter.seekToKey(keyOf(i));
-            byte[] key = iter.getKey();
-            byte[] value = iter.getValue();
-            assertArrayEquals(keyOf(i), key);
-            assertArrayEquals(valueOf(i), value);
-        }
+        Block.BlockIterator iter = Block.BlockIterator.createAndSeekToKey(block, keyOf(0));
 
-        assertThrows(NoSuchElementException.class, () -> iter.seekToKey(keyOf(114514)));
+        for (int offset = 1; offset <= 5; offset++) {
+            for (int i = 0; i < 100; i++) {
+                byte[] key = iter.getKey();
+                byte[] value = iter.getValue();
+                assertArrayEquals(keyOf(i), key);
+                assertArrayEquals(valueOf(i), value);
+                iter.seekToKey(String.format("key_%03d", i * 5 + offset).getBytes());
+            }
+            iter.seekToKey("k".getBytes());
+        }
     }
 }

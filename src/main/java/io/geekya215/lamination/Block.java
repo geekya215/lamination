@@ -6,23 +6,23 @@ import io.geekya215.lamination.util.Preconditions;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.zip.CRC32;
 
 import static io.geekya215.lamination.Constants.*;
 
+//
 //  --------------------------------------------------------------------
 // |                            Block Size                              |
 // |---------+-------------------+--------------------+-----------------|
 // |         |                   |   offsets(2B/per)  |     entries     |
 // |crc32(4B)|num_of_elements(2B)|offset|offset|offset|entry|entry|entry|
 //  --------------------------------------------------------------------
+//
 public final class Block implements Measurable {
     private static final CRC32 crc32 = new CRC32();
 
     private final short[] offsets;
     private final byte[] data;
-
 
     public Block(short[] offsets, byte[] data) {
         this.offsets = offsets;
@@ -75,7 +75,7 @@ public final class Block implements Measurable {
         int blockSize = bytes.length;
 
         crc32.update(bytes, 4, blockSize - 4);
-        int expected = (int) crc32.getValue();
+        int expectedCheckSum = (int) crc32.getValue();
         crc32.reset();
 
         //  -------------------------
@@ -83,13 +83,14 @@ public final class Block implements Measurable {
         // |  4(B) |       2(B)      |
         // ^-------^-----------------^
         // 0       4                 6
-        int actual = (bytes[0] & 0xff) << 24
+        int actualCheckSum
+            = (bytes[0] & 0xff) << 24
             | (bytes[1] & 0xff) << 16
             | (bytes[2] & 0xff) << 8
-            | bytes[3] & 0xff;
+            | (bytes[3] & 0xff);
 
-        if (expected != actual) {
-            throw new Crc32MismatchException(expected, actual);
+        if (expectedCheckSum != actualCheckSum) {
+            throw new Crc32MismatchException(expectedCheckSum, actualCheckSum);
         }
 
         int numOfElements = (bytes[4] & 0xff) << 8 | (bytes[5] & 0xff);
@@ -148,6 +149,7 @@ public final class Block implements Measurable {
             int valueSize = value.length;
             int entrySize = 2 * SIZE_OF_U16 + keySize + valueSize;
 
+            Preconditions.checkArgument(keySize > 0, "key must not be empty");
             Preconditions.checkArgument(
                 entrySize + SIZE_OF_U32 + 2 * SIZE_OF_U16 <= blockSize,
                 "entry size too large");
@@ -276,6 +278,7 @@ public final class Block implements Measurable {
             value = valueBytes;
         }
 
+        // Seek to the first key that >= `key`.
         public void seekToKey(byte[] key) {
             int low = 0;
             int high = block.getOffsets().length;
@@ -287,14 +290,13 @@ public final class Block implements Measurable {
                 if (cmp < 0) {
                     low = mid + 1;
                 } else if (cmp == 0) {
-                    index = mid;
                     return;
                 } else {
                     high = mid;
                 }
             }
 
-            throw new NoSuchElementException("could not find key " + new String(key));
+            seekTo(low);
         }
     }
 }
