@@ -74,9 +74,11 @@ public final class Engine {
                         // find in sst
                         for (int i = 1; i <= seq.get(); ++i) {
                             try (SSTable sst = SSTable.open(i, baseDir)) {
-                                SSTable.SSTableIterator iterator = SSTable.SSTableIterator.createAndSeekToKey(sst, key);
-                                if (Arrays.equals(iterator.getKey(), key)) {
-                                    return ByteBuffer.wrap(iterator.getValue());
+                                if (sst.containKey(key)) {
+                                    SSTable.SSTableIterator iterator = SSTable.SSTableIterator.createAndSeekToKey(sst, key);
+                                    if (Arrays.equals(iterator.getKey(), key)) {
+                                        return ByteBuffer.wrap(iterator.getValue());
+                                    }
                                 }
                             }
                         }
