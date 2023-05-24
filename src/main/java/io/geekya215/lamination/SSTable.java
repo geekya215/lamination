@@ -1,6 +1,7 @@
 package io.geekya215.lamination;
 
 import io.geekya215.lamination.exception.InvalidFormatException;
+import io.geekya215.lamination.util.IOUtil;
 import io.geekya215.lamination.util.Preconditions;
 
 import java.io.*;
@@ -13,12 +14,13 @@ import static io.geekya215.lamination.Options.DEFAULT_BLOCK_SIZE;
 import static io.geekya215.lamination.util.FileUtil.*;
 
 //
-//  ----------------------------------------------------------------------------------------------
-// |                                            SST                                               |
-// |----------------------------------------------------------------------------------------------|
-// | magic(8B) | data blocks | meta blocks | meta block offset(4B) | bloom filter | bf offset(4B) |
-//  ----------------------------------------------------------------------------------------------
-//
+//  ----------------------------------------------------------------------------------
+// |                                      SST                                         |
+// |----------------------------------------------------------------------------------|
+// | magic | data blocks | meta blocks | meta block offset | bloom filter | bf offset |
+// |-------+-------------+-------------+-------------------+--------------+-----------|
+// |   8B  |     ?B      |     ?B      |        4B         |      ?B      |    4B     |
+//  ----------------------------------------------------------------------------------
 public final class SSTable implements Closeable {
     private final long id;
     private final RandomAccessFile file;
@@ -50,14 +52,12 @@ public final class SSTable implements Closeable {
         return metaBlockOffset;
     }
 
-    public static SSTable open(long id, File baseDir) throws IOException {
-        Preconditions.checkState(baseDir.exists() && baseDir.isDirectory());
-        String filename = makeFileName(id, SST_FILE_SUFFIX);
-        File file = new File(baseDir, filename);
-        if (!file.exists()) {
-            throw new FileNotFoundException();
-        }
-        RandomAccessFile raf = new RandomAccessFile(file, "r");
+    public static SSTable open(long id, File dir) throws IOException {
+        String sstFileName = String.format("%06d%s", id, SST_FILE_SUFFIX);
+        File sstFile = new File(dir, sstFileName);
+        RandomAccessFile raf = new RandomAccessFile(sstFile, "r");
+
+        // check magic number
         byte[] magic = new byte[8];
         raf.readFully(magic);
         int cmp = Arrays.compare(MAGIC, magic);
@@ -65,41 +65,57 @@ public final class SSTable implements Closeable {
             throw new InvalidFormatException("invalid sst file format");
         }
 
-        int fileSize = (int) file.length();
-        raf.seek(fileSize - SIZE_OF_U32);
+        long sstFileSize = sstFile.length();
+
+        //                      bloom filter size
+        //                         ----------
+        //                       /            \
+        //   ---------------------------------------------------------
+        //  | meta block offset | bloom filter |  bloom filter offset |
+        //  |-------------------+--------------+----------------------|
+        //  |         4B        |      ?B      |          4B          |
+        //   ---------------------------------------------------------
+        //                      ^                                     ^
+        //              bloom filter offset                       file end
+        //
+
+        // decode bloom filter
+        raf.seek(sstFileSize - SIZE_OF_U32);
         int bloomFilterOffset = raf.readInt();
-        int bloomFilterSize = fileSize - bloomFilterOffset - SIZE_OF_U32;
+        int bloomFilterSize = (int) (sstFileSize - bloomFilterOffset - SIZE_OF_U32);
         byte[] bloomFilterBytes = new byte[bloomFilterSize];
         raf.seek(bloomFilterOffset);
         raf.readFully(bloomFilterBytes);
         BloomFilter bloomFilter = BloomFilter.decode(bloomFilterBytes);
 
+        //                meta blocks size
+        //                   -----------
+        //                 /             \
+        //   -----------------------------------------------------
+        //  | data blocks |  meta blocks  |   meta block offset   |
+        //  |-------------+---------------+-----------------------|
+        //  |      ?B     |       ?B      |          4B           |
+        //   -----------------------------------------------------
+        //                ^                                       ^
+        //         meta block offset                      bloom filter offset
+        //
+
+        // decode meta blocks
         raf.seek(bloomFilterOffset - SIZE_OF_U32);
-        int metaBlockOffset = raf.readInt();
-        // Todo
-        // exclude bloom filter offset
-        int metaBlocksSize = bloomFilterOffset - metaBlockOffset - SIZE_OF_U32;
+        int metaBlocksOffset = raf.readInt();
+        int metaBlocksSize = bloomFilterOffset - metaBlocksOffset - SIZE_OF_U32;
         byte[] metaBlocksBytes = new byte[metaBlocksSize];
-        raf.seek(metaBlockOffset);
+        raf.seek(metaBlocksOffset);
         raf.readFully(metaBlocksBytes);
 
-        List<MetaBlock> metaBlocks = new ArrayList<>();
-        int index = 0;
-        while (index < metaBlocksSize) {
-            int offset
-                = (metaBlocksBytes[index] & 0xff) << 24
-                | (metaBlocksBytes[index + 1] & 0xff) << 16
-                | (metaBlocksBytes[index + 2] & 0xff) << 8
-                | (metaBlocksBytes[index + 3] & 0xff);
-            int keySize = (metaBlocksBytes[index + 4] & 0xff << 8) | (metaBlocksBytes[index + 5] & 0xff);
-            byte[] firstKey = new byte[keySize];
-            System.arraycopy(metaBlocksBytes, index + 6, firstKey, 0, keySize);
-            index += (6 + keySize);
-            metaBlocks.add(new MetaBlock(offset, firstKey));
-        }
+        // Todo
+        // we can persist number of meta blocks to reduce list resize
+        List<MetaBlock> metaBlocks = MetaBlock.decode(metaBlocksBytes);
 
+        // reset
         raf.seek(0);
-        return new SSTable(id, raf, metaBlocks, metaBlockOffset, bloomFilter);
+
+        return new SSTable(id, raf, metaBlocks, metaBlocksOffset, bloomFilter);
     }
 
     public Block readBlock(int blockIndex) throws IOException {
@@ -139,39 +155,54 @@ public final class SSTable implements Closeable {
     }
 
     //
-    //  ------------------------------------------
-    // |             |          first key         |
-    // |------------------------------------------|
-    // | offset (4B) | keylen (2B) | key (keylen) |
-    //  ------------------------------------------
+    //  -----------------------------
+    // |        |     first key      |
+    // |-----------------------------|
+    // | offset | key_len |    key   |
+    // |--------+---------+----------|
+    // |   4B   |   2B    | keylen B |
+    //  ----------------------------
     //
     public record MetaBlock(int offset, byte[] firstKey) implements Measurable {
-        public byte[] encode() {
-            int keySize = firstKey.length;
-            byte[] bytes = new byte[SIZE_OF_U32 + SIZE_OF_U16 + keySize];
+        public static byte[] encode(List<MetaBlock> metaBlocks) {
+            int bytesSize = 0;
+            for (MetaBlock metaBlock : metaBlocks) {
+                bytesSize += metaBlock.estimateSize();
+            }
+            byte[] bytes = new byte[bytesSize];
 
-            bytes[0] = (byte) (offset >> 24);
-            bytes[1] = (byte) (offset >> 16);
-            bytes[2] = (byte) (offset >> 8);
-            bytes[3] = (byte) offset;
+            int index = 0;
+            for (MetaBlock metaBlock : metaBlocks) {
+                byte[] firstKey = metaBlock.firstKey;
+                int firstKeySize = firstKey.length;
 
-            bytes[4] = (byte) (keySize >> 8);
-            bytes[5] = (byte) keySize;
+                IOUtil.writeU32(bytes, index, metaBlock.offset);
+                index += 4;
+                IOUtil.writeU32AsU16(bytes, index, firstKeySize);
+                index += 2;
+                IOUtil.writeBytes(bytes, index, firstKey);
+                index += firstKeySize;
+            }
 
-            System.arraycopy(firstKey, 0, bytes, 6, keySize);
             return bytes;
         }
 
-        public static MetaBlock decode(byte[] bytes) {
-            int offset
-                = (bytes[0] & 0xff) << 24
-                | (bytes[1] & 0xff) << 16
-                | (bytes[2] & 0xff) << 8
-                | (bytes[3] & 0xff);
-            int keySize = (bytes[4] & 0xff << 8) | (bytes[5] & 0xff);
-            byte[] firstKey = new byte[keySize];
-            System.arraycopy(bytes, 6, firstKey, 0, keySize);
-            return new MetaBlock(offset, firstKey);
+        public static List<MetaBlock> decode(byte[] bytes) {
+            List<MetaBlock> metaBlocks = new ArrayList<>();
+
+            int index = 0;
+            while (index < bytes.length) {
+                int offset = IOUtil.readU32(bytes, index);
+                index += 4;
+                int firstKeySize = IOUtil.readU16AsU32(bytes, index);
+                index += 2;
+                byte[] firstKey = new byte[firstKeySize];
+                IOUtil.readBytes(firstKey, index, bytes);
+                index += firstKeySize;
+                metaBlocks.add(new MetaBlock(offset, firstKey));
+            }
+
+            return metaBlocks;
         }
 
         @Override
@@ -234,11 +265,11 @@ public final class SSTable implements Closeable {
             blockBuilder.reset();
         }
 
-        public SSTable build(long id, File baseDir) throws IOException {
+        public SSTable build(long id, File dir) throws IOException {
             generateBlock();
 
-            Preconditions.checkState(baseDir.exists() && baseDir.isDirectory());
-            File file = makeFile(baseDir, makeFileName(id, SST_FILE_SUFFIX));
+            Preconditions.checkState(dir.exists() && dir.isDirectory());
+            File file = makeFile(dir, makeFileName(id, SST_FILE_SUFFIX));
 
             int n = 0;
             for (Block block : blocks) {
@@ -256,14 +287,17 @@ public final class SSTable implements Closeable {
             byte[] bloomFilterBytes = bloomFilter.encode();
 
             int metaBlockOffset = currentBlockOffset;
-            // Todo
-            // careful here
+
             //
-            //       -------------------------------
-            //      | meta block| meta block offset |
-            //      |    4(B)   |        (4B)       |
-            //      ^-----------^-------------------
-            //      0   lash meta block index
+            //   ------------------------------------------------
+            //  | meta blocks | meta block offset | bloom filter |
+            //  |-------------+-------------------+--------------|
+            //  |      ?B     |         4B        |      ?B      |
+            //   ------------------------------------------------
+            //                ^                   ^
+            //        current block offset   bloom filter offset
+            //
+
             int bloomFilterOffset = currentBlockOffset + SIZE_OF_U32;
             try (FileOutputStream fos = new FileOutputStream(file)) {
                 fos.write(Constants.MAGIC);
@@ -274,26 +308,20 @@ public final class SSTable implements Closeable {
 
                 for (MetaBlock metaBlock : metaBlocks) {
                     bloomFilterOffset += metaBlock.estimateSize();
-                    fos.write(metaBlock.encode());
                 }
 
-                byte[] metaBlockOffsetBytes = new byte[4];
-                metaBlockOffsetBytes[0] = (byte) (metaBlockOffset >> 24);
-                metaBlockOffsetBytes[1] = (byte) (metaBlockOffset >> 16);
-                metaBlockOffsetBytes[2] = (byte) (metaBlockOffset >> 8);
-                metaBlockOffsetBytes[3] = (byte) metaBlockOffset;
-                fos.write(metaBlockOffsetBytes);
+                fos.write(MetaBlock.encode(metaBlocks));
+
+                byte[] offsetBytes = new byte[4];
+                IOUtil.writeU32(offsetBytes, 0, metaBlockOffset);
+                fos.write(offsetBytes);
 
                 fos.write(bloomFilterBytes);
-                byte[] bloomFilterOffsetBytes = new byte[4];
-                bloomFilterOffsetBytes[0] = (byte) (bloomFilterOffset >> 24);
-                bloomFilterOffsetBytes[1] = (byte) (bloomFilterOffset >> 16);
-                bloomFilterOffsetBytes[2] = (byte) (bloomFilterOffset >> 8);
-                bloomFilterOffsetBytes[3] = (byte) bloomFilterOffset;
-                fos.write(bloomFilterOffsetBytes);
+                IOUtil.writeU32(offsetBytes, 0, bloomFilterOffset);
+                fos.write(offsetBytes);
             }
 
-            return new SSTable(id, baseDir, metaBlocks, currentBlockOffset, bloomFilter);
+            return new SSTable(id, dir, metaBlocks, currentBlockOffset, bloomFilter);
         }
     }
 

@@ -1,21 +1,20 @@
 package io.geekya215.lamination;
 
-import io.geekya215.lamination.exception.Crc32MismatchException;
+import io.geekya215.lamination.util.FileUtil;
+import io.geekya215.lamination.util.IOUtil;
 
 import java.util.BitSet;
-import java.util.zip.CRC32;
 
 //
-//  ----------------------------------------------------------------------------------
-// |                                   Bloom filter                                   |
-// |---------+--------------------+--------------------+-----------------+------------|
-// |crc32(4B)| false positive(8B) | num of element(4B) | bitset size(4B) | bitset(?B) |
-//  ----------------------------------------------------------------------------------
+//  ----------------------------------------------------------------
+// |                           bloom filter                         |
+// |----------------------------------------------------------------|
+// | crc32 | false positive | num of element | bitset size | bitset |
+// |-------+----------------+----------------+-------------+--------|
+// |   4B  |       8B       |       4B       |      4B     |   ?B   |
+//  ----------------------------------------------------------------
 //
 public final class BloomFilter {
-    // Todo
-    // share same crc instance with Block?
-    private static final CRC32 crc32 = new CRC32();
     private static final double DEFAULT_FALSE_POSITIVE = 0.03;
     private final BitSet bitSet;
     /*
@@ -92,8 +91,8 @@ public final class BloomFilter {
     }
 
     public byte[] encode() {
-        byte[] bitSetByteArray = bitSet.toByteArray();
-        int bitsetSize = bitSetByteArray.length;
+        byte[] bitsetBytes = bitSet.toByteArray();
+        int bitsetSize = bitsetBytes.length;
 
         int bytesSize = Constants.SIZE_OF_U32 * 3 + Constants.SIZE_OF_U64 + bitsetSize;
         byte[] bytes = new byte[bytesSize];
@@ -101,88 +100,39 @@ public final class BloomFilter {
         int index = 4;
         long pToLong = Double.doubleToLongBits(p);
 
-        bytes[index + 0] = (byte) (pToLong >> 56);
-        bytes[index + 1] = (byte) (pToLong >> 48);
-        bytes[index + 2] = (byte) (pToLong >> 40);
-        bytes[index + 3] = (byte) (pToLong >> 32);
-        bytes[index + 4] = (byte) (pToLong >> 24);
-        bytes[index + 5] = (byte) (pToLong >> 16);
-        bytes[index + 6] = (byte) (pToLong >> 8);
-        bytes[index + 7] = (byte) (pToLong >> 0);
+        IOUtil.writeU64(bytes, index, pToLong);
         index += 8;
 
-        bytes[index + 0] = (byte) (n >> 24);
-        bytes[index + 1] = (byte) (n >> 16);
-        bytes[index + 2] = (byte) (n >> 8);
-        bytes[index + 3] = (byte) (n >> 0);
+        IOUtil.writeU32(bytes, index, n);
         index += 4;
 
-        bytes[index + 0] = (byte) (bitsetSize >> 24);
-        bytes[index + 1] = (byte) (bitsetSize >> 16);
-        bytes[index + 2] = (byte) (bitsetSize >> 8);
-        bytes[index + 3] = (byte) (bitsetSize >> 0);
+        IOUtil.writeU32(bytes, index, bitsetSize);
         index += 4;
 
-        System.arraycopy(bitSetByteArray, 0, bytes, index, bitsetSize);
+        IOUtil.writeBytes(bytes, index, bitsetBytes);
 
-        crc32.update(bytes, 4, bytesSize - 4);
-        int checkSum = (int) crc32.getValue();
-        crc32.reset();
-
-        bytes[0] = (byte) (checkSum >> 24);
-        bytes[1] = (byte) (checkSum >> 16);
-        bytes[2] = (byte) (checkSum >> 8);
-        bytes[3] = (byte) (checkSum >> 0);
+        FileUtil.writeCRC32(bytes);
 
         return bytes;
     }
 
     public static BloomFilter decode(byte[] bytes) {
-        int blockSize = bytes.length;
-
-        crc32.update(bytes, 4, blockSize - 4);
-        int expectedCheckSum = (int) crc32.getValue();
-        crc32.reset();
-
-        int actualCheckSum
-            = (bytes[0] & 0xff) << 24
-            | (bytes[1] & 0xff) << 16
-            | (bytes[2] & 0xff) << 8
-            | (bytes[3] & 0xff) << 0;
-
-        if (expectedCheckSum != actualCheckSum) {
-            throw new Crc32MismatchException(expectedCheckSum, actualCheckSum);
-        }
+        FileUtil.checkCRC32(bytes);
 
         int index = 4;
-        long longToP
-            = ((bytes[index + 0] & 0xffL) << 56)
-            | ((bytes[index + 1] & 0xffL) << 48)
-            | ((bytes[index + 2] & 0xffL) << 40)
-            | ((bytes[index + 3] & 0xffL) << 32)
-            | ((bytes[index + 4] & 0xffL) << 24)
-            | ((bytes[index + 5] & 0xffL) << 16)
-            | ((bytes[index + 6] & 0xffL) << 8)
-            | ((bytes[index + 7] & 0xffL) << 0);
+
+        long longToP = IOUtil.readU64(bytes, index);
         double p = Double.longBitsToDouble(longToP);
         index += 8;
 
-        int n
-            = ((bytes[index + 0] & 0xff) << 24)
-            | ((bytes[index + 1] & 0xff) << 16)
-            | ((bytes[index + 2] & 0xff) << 8)
-            | ((bytes[index + 3] & 0xff) << 0);
+        int n = IOUtil.readU32(bytes, index);
         index += 4;
 
-        int bitsetSize
-            = ((bytes[index + 0] & 0xff) << 24)
-            | ((bytes[index + 1] & 0xff) << 16)
-            | ((bytes[index + 2] & 0xff) << 8)
-            | ((bytes[index + 3] & 0xff) << 0);
+        int bitsetSize = IOUtil.readU32(bytes, index);
         index += 4;
 
         byte[] bitsetBytes = new byte[bitsetSize];
-        System.arraycopy(bytes, index, bitsetBytes, 0, bitsetSize);
+        IOUtil.readBytes(bitsetBytes, index, bytes);
         BitSet bitSet = BitSet.valueOf(bitsetBytes);
 
         int m = (int) (-n * Math.log(p) / Math.pow(Math.log(2.0), 2.0));

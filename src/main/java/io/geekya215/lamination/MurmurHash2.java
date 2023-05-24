@@ -1,5 +1,7 @@
 package io.geekya215.lamination;
 
+import io.geekya215.lamination.util.IOUtil;
+
 public final class MurmurHash2 {
     private static final int S32 = 0x9747b28c;
     private static final int M32 = 0x5bd1e995;
@@ -19,8 +21,7 @@ public final class MurmurHash2 {
 
         for (int i = 0; i < nblocks; i++) {
             final int index = (i << 2);
-            int k = (data[index] & 0xff) + ((data[index + 1] & 0xff) << 8)
-                + ((data[index + 2] & 0xff) << 16) + ((data[index + 3] & 0xff) << 24);
+            int k = IOUtil.readU32(data, index);
             k *= M32;
             k ^= k >>> R32;
             k *= M32;
@@ -57,10 +58,7 @@ public final class MurmurHash2 {
 
         for (int i = 0; i < nblocks; i++) {
             final int index = (i << 3);
-            long k = ((long) data[index] & 0xff) + (((long) data[index + 1] & 0xff) << 8)
-                + (((long) data[index + 2] & 0xff) << 16) + (((long) data[index + 3] & 0xff) << 24)
-                + (((long) data[index + 4] & 0xff) << 32) + (((long) data[index + 5] & 0xff) << 40)
-                + (((long) data[index + 6] & 0xff) << 48) + (((long) data[index + 7] & 0xff) << 56);
+            long k = IOUtil.readU64(data, index);
 
             k *= M64;
             k ^= k >>> R64;

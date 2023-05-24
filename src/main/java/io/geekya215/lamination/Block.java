@@ -1,26 +1,25 @@
 package io.geekya215.lamination;
 
-import io.geekya215.lamination.exception.Crc32MismatchException;
+import io.geekya215.lamination.util.FileUtil;
+import io.geekya215.lamination.util.IOUtil;
 import io.geekya215.lamination.util.Preconditions;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.zip.CRC32;
 
 import static io.geekya215.lamination.Constants.*;
 
 //
-//  --------------------------------------------------------------------
-// |                            Block Size                              |
-// |---------+-------------------+--------------------+-----------------|
-// |         |                   |   offsets(2B/per)  |     entries     |
-// |crc32(4B)|num_of_elements(2B)|offset|offset|offset|entry|entry|entry|
-//  --------------------------------------------------------------------
+//  -----------------------------------------------------------------------
+// |                               Block                                   |
+// |-----------------------------------------------------------------------|
+// |  crc32  | num of elements |   offsets(2B/per)   |       entries       |
+// |---------+-----------------+---------------------+---------------------|
+// |    4B   |        2B       |  2B  |  2B  |  ...  |  ?B  |  ?B  |  ...  |
+//  -----------------------------------------------------------------------
 //
 public final class Block implements Measurable {
-    private static final CRC32 crc32 = new CRC32();
-
     private final short[] offsets;
     private final byte[] data;
 
@@ -44,29 +43,20 @@ public final class Block implements Measurable {
 
         // num of elements
         int numOfElements = offsets.length;
-        bytes[index++] = (byte) (numOfElements >> 8);
-        bytes[index++] = (byte) numOfElements;
+        IOUtil.writeU32AsU16(bytes, index, numOfElements);
+        index += 2;
 
         // offsets
         for (short o : offsets) {
-            bytes[index++] = (byte) (o >> 8);
-            bytes[index++] = (byte) o;
+            IOUtil.writeU16(bytes, index, o);
+            index += 2;
         }
 
         // data
-        for (byte d : data) {
-            bytes[index++] = d;
-        }
+        IOUtil.writeBytes(bytes, index, data);
 
         // crc32
-        crc32.update(bytes, 4, blockSize - 4);
-        int checkSum = (int) crc32.getValue();
-        crc32.reset();
-
-        bytes[0] = (byte) (checkSum >> 24);
-        bytes[1] = (byte) (checkSum >> 16);
-        bytes[2] = (byte) (checkSum >> 8);
-        bytes[3] = (byte) checkSum;
+        FileUtil.writeCRC32(bytes);
 
         return bytes;
     }
@@ -74,43 +64,34 @@ public final class Block implements Measurable {
     public static Block decode(byte[] bytes) {
         int blockSize = bytes.length;
 
-        crc32.update(bytes, 4, blockSize - 4);
-        int expectedCheckSum = (int) crc32.getValue();
-        crc32.reset();
+        FileUtil.checkCRC32(bytes);
 
         //  -------------------------
-        // | crc32 | num_of_elements |
-        // |  4(B) |       2(B)      |
-        // ^-------^-----------------^
+        // | crc32 | num of elements |
+        // |-------+-----------------|
+        // |   4B  |       2B        |
+        //  -------------------------
+        // ^       ^                 ^
         // 0       4                 6
-        int actualCheckSum
-            = (bytes[0] & 0xff) << 24
-            | (bytes[1] & 0xff) << 16
-            | (bytes[2] & 0xff) << 8
-            | (bytes[3] & 0xff);
+        int index = 4;
+        int numOfElements = IOUtil.readU16AsU32(bytes, index);
+        index += 2;
 
-        if (expectedCheckSum != actualCheckSum) {
-            throw new Crc32MismatchException(expectedCheckSum, actualCheckSum);
-        }
-
-        int numOfElements = (bytes[4] & 0xff) << 8 | (bytes[5] & 0xff);
         short[] offsets = new short[numOfElements];
         byte[] data = new byte[blockSize - SIZE_OF_U32 - SIZE_OF_U16 - (numOfElements << 1)];
 
-        int index = 6;
         for (int i = 0; i < numOfElements; i++) {
-            offsets[i] = (short) (((bytes[index] & 0xff) << 8) | (bytes[index + 1] & 0xff));
+            offsets[i] = IOUtil.readU16(bytes, index);
             index += 2;
         }
-        System.arraycopy(bytes, index, data, 0, data.length);
-
+        IOUtil.readBytes(data, index, bytes);
         return new Block(offsets, data);
     }
 
     public byte[] firstKey() {
-        int keySize = ((data[0] & 0xff) << 8) | (data[1] & 0xff);
+        int keySize = IOUtil.readU16AsU32(data, 0);
         byte[] key = new byte[keySize];
-        System.arraycopy(data, 4, key, 0, keySize);
+        IOUtil.readBytes(key, 4, data);
         return key;
     }
 
@@ -120,8 +101,8 @@ public final class Block implements Measurable {
     }
 
     public static final class BlockBuilder {
-        private final List<Byte> offsetsBytes;
-        private final List<Byte> dataBytes;
+        private final List<Byte> offsetByteList;
+        private final List<Byte> dataByteList;
         private final int blockSize;
         private int currentSize;
 
@@ -131,24 +112,28 @@ public final class Block implements Measurable {
 
         public BlockBuilder(int blockSize) {
             Preconditions.checkArgument(blockSize > 0, "block size must greater than 0 byte");
-            this.offsetsBytes = new ArrayList<>();
-            this.dataBytes = new ArrayList<>();
+            this.offsetByteList = new ArrayList<>();
+            this.dataByteList = new ArrayList<>();
             this.blockSize = blockSize;
             this.currentSize = 0;
         }
 
         //
-        //  ---------------------------------------------------------------
-        // |                             entry                             |
-        // |--------------+----------------+--------------+----------------|
-        // | key_len (2B) | value_len (2B) | key (keylen) | value (varlen) |
-        //  ---------------------------------------------------------------
+        //  -------------------------------------------
+        // |                   entry                   |
+        // |-------------------------------------------|
+        // | key_len | value_len |    key   |   value  |
+        // |---------+-----------+----------+----------|
+        // |    2B   |     2B    | keylen B | varlen B |
+        //  ------------------------------------------
         //
         public boolean put(byte[] key, byte[] value) {
             int keySize = key.length;
             int valueSize = value.length;
             int entrySize = 2 * SIZE_OF_U16 + keySize + valueSize;
 
+            // Todo
+            // for reducing call hierarchy we should check key and value at engine
             Preconditions.checkArgument(keySize > 0, "key must not be empty");
             Preconditions.checkArgument(
                 entrySize + SIZE_OF_U32 + 2 * SIZE_OF_U16 <= blockSize,
@@ -158,20 +143,20 @@ public final class Block implements Measurable {
                 return false;
             }
 
-            offsetsBytes.add((byte) (currentSize >> 8));
-            offsetsBytes.add((byte) currentSize);
+            offsetByteList.add((byte) (currentSize >> 8));
+            offsetByteList.add((byte) currentSize);
 
-            dataBytes.add((byte) (keySize >> 8));
-            dataBytes.add((byte) keySize);
-            dataBytes.add((byte) (valueSize >> 8));
-            dataBytes.add((byte) valueSize);
+            dataByteList.add((byte) (keySize >> 8));
+            dataByteList.add((byte) keySize);
+            dataByteList.add((byte) (valueSize >> 8));
+            dataByteList.add((byte) valueSize);
 
             for (byte k : key) {
-                dataBytes.add(k);
+                dataByteList.add(k);
             }
 
             for (byte v : value) {
-                dataBytes.add(v);
+                dataByteList.add(v);
             }
 
             currentSize += entrySize;
@@ -181,25 +166,25 @@ public final class Block implements Measurable {
 
         // avoid create new builder
         public void reset() {
-            offsetsBytes.clear();
-            dataBytes.clear();
+            offsetByteList.clear();
+            dataByteList.clear();
             currentSize = 0;
         }
 
         public Block build() {
-            Preconditions.checkState(!offsetsBytes.isEmpty(), "block should not be empty");
+            Preconditions.checkState(!offsetByteList.isEmpty(), "block should not be empty");
 
-            short[] offset = new short[offsetsBytes.size() >>> 1];
-            byte[] data = new byte[dataBytes.size()];
+            short[] offset = new short[offsetByteList.size() >>> 1];
+            byte[] data = new byte[dataByteList.size()];
 
             int index = 0;
-            for (int i = 0; i < offsetsBytes.size() >>> 1; i++) {
-                offset[i] = (short) (((offsetsBytes.get(index) & 0xff) << 8) | (offsetsBytes.get(index + 1) & 0xff));
+            for (int i = 0; i < offsetByteList.size() >>> 1; i++) {
+                offset[i] = (short) (((offsetByteList.get(index) & 0xff) << 8) | (offsetByteList.get(index + 1) & 0xff));
                 index += 2;
             }
 
-            for (int i = 0; i < dataBytes.size(); i++) {
-                data[i] = dataBytes.get(i);
+            for (int i = 0; i < dataByteList.size(); i++) {
+                data[i] = dataByteList.get(i);
             }
 
             return new Block(offset, data);
@@ -245,7 +230,7 @@ public final class Block implements Measurable {
         }
 
         public boolean isValid() {
-            return !(key.length == 0);
+            return key.length != 0;
         }
 
         public void seekToFirst() {
@@ -265,14 +250,15 @@ public final class Block implements Measurable {
 
         void seekToOffset(int offset) {
             byte[] data = block.getData();
-            int keySize = ((data[offset] & 0xff) << 8) | (data[offset + 1] & 0xff);
-            int valueSize = ((data[offset + 2] & 0xff) << 8) | (data[offset + 3] & 0xff);
-            offset += 4;
+            int keySize = IOUtil.readU16AsU32(data, offset);
+            offset += 2;
+            int valueSize = IOUtil.readU16AsU32(data, offset);
+            offset += 2;
 
             byte[] keyBytes = new byte[keySize];
             byte[] valueBytes = new byte[valueSize];
-            System.arraycopy(data, offset, keyBytes, 0, keySize);
-            System.arraycopy(data, offset + keySize, valueBytes, 0, valueSize);
+            IOUtil.readBytes(keyBytes, offset, data);
+            IOUtil.readBytes(valueBytes, offset + keySize, data);
 
             key = keyBytes;
             value = valueBytes;
