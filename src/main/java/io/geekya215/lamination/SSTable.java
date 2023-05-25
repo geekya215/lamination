@@ -1,7 +1,7 @@
 package io.geekya215.lamination;
 
 import io.geekya215.lamination.exception.InvalidFormatException;
-import io.geekya215.lamination.util.IOUtil;
+import io.geekya215.lamination.util.ByteUtil;
 import io.geekya215.lamination.util.Preconditions;
 
 import java.io.*;
@@ -176,11 +176,11 @@ public final class SSTable implements Closeable {
                 byte[] firstKey = metaBlock.firstKey;
                 int firstKeySize = firstKey.length;
 
-                IOUtil.writeU32(bytes, index, metaBlock.offset);
+                ByteUtil.writeU32(bytes, index, metaBlock.offset);
                 index += 4;
-                IOUtil.writeU32AsU16(bytes, index, firstKeySize);
+                ByteUtil.writeU32AsU16(bytes, index, firstKeySize);
                 index += 2;
-                IOUtil.writeBytes(bytes, index, firstKey);
+                ByteUtil.writeAllBytes(bytes, index, firstKey);
                 index += firstKeySize;
             }
 
@@ -192,12 +192,12 @@ public final class SSTable implements Closeable {
 
             int index = 0;
             while (index < bytes.length) {
-                int offset = IOUtil.readU32(bytes, index);
+                int offset = ByteUtil.readU32(bytes, index);
                 index += 4;
-                int firstKeySize = IOUtil.readU16AsU32(bytes, index);
+                int firstKeySize = ByteUtil.readU16AsU32(bytes, index);
                 index += 2;
                 byte[] firstKey = new byte[firstKeySize];
-                IOUtil.readBytes(firstKey, index, bytes);
+                ByteUtil.readAllBytes(firstKey, index, bytes);
                 index += firstKeySize;
                 metaBlocks.add(new MetaBlock(offset, firstKey));
             }
@@ -313,11 +313,11 @@ public final class SSTable implements Closeable {
                 fos.write(MetaBlock.encode(metaBlocks));
 
                 byte[] offsetBytes = new byte[4];
-                IOUtil.writeU32(offsetBytes, 0, metaBlockOffset);
+                ByteUtil.writeU32(offsetBytes, 0, metaBlockOffset);
                 fos.write(offsetBytes);
 
                 fos.write(bloomFilterBytes);
-                IOUtil.writeU32(offsetBytes, 0, bloomFilterOffset);
+                ByteUtil.writeU32(offsetBytes, 0, bloomFilterOffset);
                 fos.write(offsetBytes);
             }
 

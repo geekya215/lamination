@@ -1,7 +1,7 @@
 package io.geekya215.lamination;
 
 import io.geekya215.lamination.util.FileUtil;
-import io.geekya215.lamination.util.IOUtil;
+import io.geekya215.lamination.util.ByteUtil;
 
 import java.util.BitSet;
 
@@ -100,16 +100,16 @@ public final class BloomFilter {
         int index = 4;
         long pToLong = Double.doubleToLongBits(p);
 
-        IOUtil.writeU64(bytes, index, pToLong);
+        ByteUtil.writeU64(bytes, index, pToLong);
         index += 8;
 
-        IOUtil.writeU32(bytes, index, n);
+        ByteUtil.writeU32(bytes, index, n);
         index += 4;
 
-        IOUtil.writeU32(bytes, index, bitsetSize);
+        ByteUtil.writeU32(bytes, index, bitsetSize);
         index += 4;
 
-        IOUtil.writeBytes(bytes, index, bitsetBytes);
+        ByteUtil.writeAllBytes(bytes, index, bitsetBytes);
 
         FileUtil.writeCRC32(bytes);
 
@@ -121,18 +121,18 @@ public final class BloomFilter {
 
         int index = 4;
 
-        long longToP = IOUtil.readU64(bytes, index);
+        long longToP = ByteUtil.readU64(bytes, index);
         double p = Double.longBitsToDouble(longToP);
         index += 8;
 
-        int n = IOUtil.readU32(bytes, index);
+        int n = ByteUtil.readU32(bytes, index);
         index += 4;
 
-        int bitsetSize = IOUtil.readU32(bytes, index);
+        int bitsetSize = ByteUtil.readU32(bytes, index);
         index += 4;
 
         byte[] bitsetBytes = new byte[bitsetSize];
-        IOUtil.readBytes(bitsetBytes, index, bytes);
+        ByteUtil.readAllBytes(bitsetBytes, index, bytes);
         BitSet bitSet = BitSet.valueOf(bitsetBytes);
 
         int m = (int) (-n * Math.log(p) / Math.pow(Math.log(2.0), 2.0));

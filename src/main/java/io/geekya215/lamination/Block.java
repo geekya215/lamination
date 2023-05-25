@@ -1,7 +1,7 @@
 package io.geekya215.lamination;
 
 import io.geekya215.lamination.util.FileUtil;
-import io.geekya215.lamination.util.IOUtil;
+import io.geekya215.lamination.util.ByteUtil;
 import io.geekya215.lamination.util.Preconditions;
 
 import java.util.ArrayList;
@@ -43,17 +43,17 @@ public final class Block implements Measurable {
 
         // num of elements
         int numOfElements = offsets.length;
-        IOUtil.writeU32AsU16(bytes, index, numOfElements);
+        ByteUtil.writeU32AsU16(bytes, index, numOfElements);
         index += 2;
 
         // offsets
         for (short o : offsets) {
-            IOUtil.writeU16(bytes, index, o);
+            ByteUtil.writeU16(bytes, index, o);
             index += 2;
         }
 
         // data
-        IOUtil.writeBytes(bytes, index, data);
+        ByteUtil.writeAllBytes(bytes, index, data);
 
         // crc32
         FileUtil.writeCRC32(bytes);
@@ -74,24 +74,24 @@ public final class Block implements Measurable {
         // ^       ^                 ^
         // 0       4                 6
         int index = 4;
-        int numOfElements = IOUtil.readU16AsU32(bytes, index);
+        int numOfElements = ByteUtil.readU16AsU32(bytes, index);
         index += 2;
 
         short[] offsets = new short[numOfElements];
         byte[] data = new byte[blockSize - SIZE_OF_U32 - SIZE_OF_U16 - (numOfElements << 1)];
 
         for (int i = 0; i < numOfElements; i++) {
-            offsets[i] = IOUtil.readU16(bytes, index);
+            offsets[i] = ByteUtil.readU16(bytes, index);
             index += 2;
         }
-        IOUtil.readBytes(data, index, bytes);
+        ByteUtil.readAllBytes(data, index, bytes);
         return new Block(offsets, data);
     }
 
     public byte[] firstKey() {
-        int keySize = IOUtil.readU16AsU32(data, 0);
+        int keySize = ByteUtil.readU16AsU32(data, 0);
         byte[] key = new byte[keySize];
-        IOUtil.readBytes(key, 4, data);
+        ByteUtil.readAllBytes(key, 4, data);
         return key;
     }
 
@@ -250,15 +250,15 @@ public final class Block implements Measurable {
 
         void seekToOffset(int offset) {
             byte[] data = block.getData();
-            int keySize = IOUtil.readU16AsU32(data, offset);
+            int keySize = ByteUtil.readU16AsU32(data, offset);
             offset += 2;
-            int valueSize = IOUtil.readU16AsU32(data, offset);
+            int valueSize = ByteUtil.readU16AsU32(data, offset);
             offset += 2;
 
             byte[] keyBytes = new byte[keySize];
             byte[] valueBytes = new byte[valueSize];
-            IOUtil.readBytes(keyBytes, offset, data);
-            IOUtil.readBytes(valueBytes, offset + keySize, data);
+            ByteUtil.readAllBytes(keyBytes, offset, data);
+            ByteUtil.readAllBytes(valueBytes, offset + keySize, data);
 
             key = keyBytes;
             value = valueBytes;

@@ -20,7 +20,7 @@ public final class FileUtil {
         int expectedCheckSum = (int) crc32.getValue();
         crc32.reset();
 
-        int actualCheckSum = IOUtil.readU32(bytes, 0);
+        int actualCheckSum = ByteUtil.readU32(bytes, 0);
 
         if (expectedCheckSum != actualCheckSum) {
             throw new Crc32MismatchException(expectedCheckSum, actualCheckSum);
@@ -34,7 +34,7 @@ public final class FileUtil {
         int checkSum = (int) crc32.getValue();
         crc32.reset();
 
-        IOUtil.writeU32(bytes, 0, checkSum);
+        ByteUtil.writeU32(bytes, 0, checkSum);
     }
 
     public static File makeFile(File baseDir, String filename) throws IOException {
