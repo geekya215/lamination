@@ -1,5 +1,8 @@
+import io.geekya215.lamination.Block;
+import io.geekya215.lamination.LRUCache;
 import io.geekya215.lamination.MemTable;
 import io.geekya215.lamination.SSTable;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -12,6 +15,13 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class MemTableTest {
+    LRUCache<Long, Block> blockCache;
+
+    @BeforeEach
+    void setup() {
+        blockCache = new LRUCache<>();
+    }
+
     ByteBuffer byteWrap(String s) {
         return ByteBuffer.wrap(s.getBytes());
     }
@@ -50,9 +60,9 @@ public class MemTableTest {
 
         SSTable.SSTableBuilder builder = new SSTable.SSTableBuilder(128);
         memTable.flush(builder);
-        SSTable sst = builder.build(0, tempDir);
+        SSTable sst = builder.build(0, tempDir, blockCache);
 
-        SSTable open = SSTable.open(0, tempDir);
+        SSTable open = SSTable.open(0, tempDir, blockCache);
 
         assertEquals(sst.getMetaBlocks(), open.getMetaBlocks());
         assertEquals(sst.getMetaBlockOffset(), open.getMetaBlockOffset());

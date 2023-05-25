@@ -13,6 +13,7 @@ public final class Engine {
     private MemTable memTable;
     private MemTable immutableMemTable;
     private final int memtableSize;
+    private final LRUCache<Long, Block> blockCache;
     private final ReentrantLock lock = new ReentrantLock();
 
     public Engine(File baseDir) {
@@ -21,14 +22,16 @@ public final class Engine {
         this.immutableMemTable = null;
         this.memtableSize = Options.DEFAULT_MEM_TABLE_SIZE;
         this.baseDir = baseDir;
+        this.blockCache = new LRUCache<>();
     }
 
-    public Engine(File baseDir, int memtableSize) {
+    public Engine(File baseDir, int memtableSize, int blockCacheSize) {
         this.seq = new AtomicLong(0L);
         this.memTable = MemTable.create();
         this.immutableMemTable = null;
         this.memtableSize = memtableSize;
         this.baseDir = baseDir;
+        this.blockCache = new LRUCache<>(blockCacheSize);
     }
 
     public void put(byte[] key, byte[] value) throws IOException {
@@ -38,7 +41,7 @@ public final class Engine {
                 if (immutableMemTable != null) {
                     SSTable.SSTableBuilder ssTableBuilder = new SSTable.SSTableBuilder();
                     immutableMemTable.flush(ssTableBuilder);
-                    ssTableBuilder.build(seq.incrementAndGet(), baseDir);
+                    ssTableBuilder.build(seq.incrementAndGet(), baseDir, blockCache);
                 }
                 immutableMemTable = memTable;
                 memTable = MemTable.create();
@@ -73,7 +76,7 @@ public final class Engine {
                     } else {
                         // find in sst
                         for (int i = 1; i <= seq.get(); ++i) {
-                            try (SSTable sst = SSTable.open(i, baseDir)) {
+                            try (SSTable sst = SSTable.open(i, baseDir, blockCache)) {
                                 if (sst.containKey(key)) {
                                     SSTable.SSTableIterator iterator = SSTable.SSTableIterator.createAndSeekToKey(sst, key);
                                     if (Arrays.equals(iterator.getKey(), key)) {

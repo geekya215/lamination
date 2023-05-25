@@ -21,27 +21,40 @@ import static io.geekya215.lamination.util.FileUtil.*;
 // |-------+-------------+-------------+-------------------+--------------+-----------|
 // |   8B  |     ?B      |     ?B      |        4B         |      ?B      |    4B     |
 //  ----------------------------------------------------------------------------------
+//
 public final class SSTable implements Closeable {
     private final long id;
     private final RandomAccessFile file;
     private final List<MetaBlock> metaBlocks;
     private final int metaBlockOffset;
     private final BloomFilter bloomFilter;
+    private final LRUCache<Long, Block> blockCache;
 
-    public SSTable(long id, RandomAccessFile file, List<MetaBlock> metaBlocks, int metaBlockOffset, BloomFilter bloomFilter) {
+    public SSTable(long id, RandomAccessFile file,
+                   List<MetaBlock> metaBlocks,
+                   int metaBlockOffset,
+                   BloomFilter bloomFilter,
+                   LRUCache<Long, Block> blockCache) {
         this.id = id;
         this.file = file;
         this.metaBlocks = metaBlocks;
         this.metaBlockOffset = metaBlockOffset;
         this.bloomFilter = bloomFilter;
+        this.blockCache = blockCache;
     }
 
-    public SSTable(long id, File baseDir, List<MetaBlock> metaBlocks, int metaBlockOffset, BloomFilter bloomFilter) throws IOException {
+    public SSTable(long id,
+                   File baseDir,
+                   List<MetaBlock> metaBlocks,
+                   int metaBlockOffset,
+                   BloomFilter bloomFilter,
+                   LRUCache<Long, Block> blockCache) throws IOException {
         this.id = id;
         this.file = new RandomAccessFile(makeSSTableFile(baseDir, id), "r");
         this.metaBlocks = metaBlocks;
         this.metaBlockOffset = metaBlockOffset;
         this.bloomFilter = bloomFilter;
+        this.blockCache = blockCache;
     }
 
     public List<MetaBlock> getMetaBlocks() {
@@ -52,7 +65,11 @@ public final class SSTable implements Closeable {
         return metaBlockOffset;
     }
 
-    public static SSTable open(long id, File dir) throws IOException {
+    public int numsOfBlocks() {
+        return metaBlocks.size();
+    }
+
+    public static SSTable open(long id, File dir, LRUCache<Long, Block> blockCache) throws IOException {
         String sstFileName = String.format("%06d%s", id, SST_FILE_SUFFIX);
         File sstFile = new File(dir, sstFileName);
         RandomAccessFile raf = new RandomAccessFile(sstFile, "r");
@@ -115,7 +132,7 @@ public final class SSTable implements Closeable {
         // reset
         raf.seek(0);
 
-        return new SSTable(id, raf, metaBlocks, metaBlocksOffset, bloomFilter);
+        return new SSTable(id, raf, metaBlocks, metaBlocksOffset, bloomFilter, blockCache);
     }
 
     public Block readBlock(int blockIndex) throws IOException {
@@ -132,6 +149,17 @@ public final class SSTable implements Closeable {
         file.readFully(bytes);
 
         return Block.decode(bytes);
+    }
+
+    public Block readCachedBlock(int blockIndex) throws IOException {
+        long index = ((id & 0xffffffffL) << 32) | blockIndex;
+        Block cachedBlock = blockCache.get(index);
+        if (cachedBlock == null) {
+            Block block = readBlock(blockIndex);
+            blockCache.put(index, block);
+            return block;
+        }
+        return cachedBlock;
     }
 
     public int findBlockIndex(byte[] key) {
@@ -265,7 +293,7 @@ public final class SSTable implements Closeable {
             blockBuilder.reset();
         }
 
-        public SSTable build(long id, File dir) throws IOException {
+        public SSTable build(long id, File dir, LRUCache<Long, Block> blockCache) throws IOException {
             generateBlock();
 
             Preconditions.checkState(dir.exists() && dir.isDirectory());
@@ -321,7 +349,7 @@ public final class SSTable implements Closeable {
                 fos.write(offsetBytes);
             }
 
-            return new SSTable(id, dir, metaBlocks, currentBlockOffset, bloomFilter);
+            return new SSTable(id, dir, metaBlocks, currentBlockOffset, bloomFilter, blockCache);
         }
     }
 
@@ -331,13 +359,13 @@ public final class SSTable implements Closeable {
         private int blockIndex;
 
         public static SSTableIterator createAndSeekToFirst(SSTable sst) throws IOException {
-            Block.BlockIterator blockIterator = Block.BlockIterator.createAndSeekToFirst(sst.readBlock(0));
+            Block.BlockIterator blockIterator = Block.BlockIterator.createAndSeekToFirst(sst.readCachedBlock(0));
             return new SSTableIterator(sst, blockIterator, 0);
         }
 
         public static SSTableIterator createAndSeekToKey(SSTable sst, byte[] key) throws IOException {
             int blockIndex = sst.findBlockIndex(key);
-            Block block = sst.readBlock(blockIndex);
+            Block block = sst.readCachedBlock(blockIndex);
             Block.BlockIterator blockIterator = Block.BlockIterator.createAndSeekToKey(block, key);
             return new SSTableIterator(sst, blockIterator, blockIndex);
         }
@@ -364,8 +392,8 @@ public final class SSTable implements Closeable {
             blockIterator.next();
             if (!blockIterator.isValid()) {
                 blockIndex += 1;
-                if (blockIndex < sst.metaBlocks.size()) {
-                    blockIterator = Block.BlockIterator.createAndSeekToFirst(sst.readBlock(blockIndex));
+                if (blockIndex < sst.numsOfBlocks()) {
+                    blockIterator = Block.BlockIterator.createAndSeekToFirst(sst.readCachedBlock(blockIndex));
                 }
             }
         }

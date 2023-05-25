@@ -1,4 +1,7 @@
+import io.geekya215.lamination.Block;
+import io.geekya215.lamination.LRUCache;
 import io.geekya215.lamination.SSTable;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -13,6 +16,13 @@ public class SSTableTest {
     @TempDir
     File tempDir;
 
+    LRUCache<Long, Block> blockCache;
+
+    @BeforeEach
+    void setup() {
+        blockCache = new LRUCache<>();
+    }
+
     byte[] keyOf(int i) {
         return String.format("key_%03d", i * 5).getBytes();
     }
@@ -25,7 +35,7 @@ public class SSTableTest {
     void testBuildSSTWithSingleKey() throws IOException {
         SSTable.SSTableBuilder builder = new SSTable.SSTableBuilder(16);
         builder.put("22".getBytes(), "33".getBytes());
-        builder.build(0, tempDir);
+        builder.build(0, tempDir, blockCache);
     }
 
     @Test
@@ -37,7 +47,7 @@ public class SSTableTest {
         builder.put("44".getBytes(), "44".getBytes());
         builder.put("55".getBytes(), "55".getBytes());
         builder.put("66".getBytes(), "66".getBytes());
-        builder.build(0, tempDir);
+        builder.build(0, tempDir, blockCache);
     }
 
     @Test
@@ -46,14 +56,14 @@ public class SSTableTest {
         for (int i = 0; i < 100; i++) {
             builder.put(keyOf(i), valueOf(i));
         }
-        return builder.build(0, tempDir);
+        return builder.build(0, tempDir, blockCache);
     }
 
     @Test
     void testDecodeSST() throws IOException {
         SSTable sst = generateSST();
         List<SSTable.MetaBlock> metaBlocks = sst.getMetaBlocks();
-        SSTable open = SSTable.open(0, tempDir);
+        SSTable open = SSTable.open(0, tempDir, blockCache);
         assertEquals(metaBlocks, open.getMetaBlocks());
     }
 

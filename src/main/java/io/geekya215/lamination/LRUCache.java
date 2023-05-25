@@ -9,6 +9,10 @@ public final class LRUCache<K, V extends Measurable> implements Cache<K, V> {
     private final int cacheSize;
     private int currentSize;
 
+    public LRUCache() {
+        this(Options.DEFAULT_BLOCK_CACHE_SIZE);
+    }
+
     public LRUCache(int cacheSize) {
         this.map = new HashMap<>();
         this.list = new LinkedList<>();
