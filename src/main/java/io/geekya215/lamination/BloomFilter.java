@@ -16,6 +16,7 @@ import java.util.BitSet;
 //
 public final class BloomFilter {
     private static final double DEFAULT_FALSE_POSITIVE = 0.03;
+
     private final BitSet bitSet;
     /*
      * m: total bits
@@ -34,17 +35,21 @@ public final class BloomFilter {
     private final int k;
     private final double p;
 
-    public BloomFilter(BitSet bitSet, int m, int n, int k, double p) {
-        this.bitSet = bitSet;
-        this.m = m;
-        this.n = n;
-        this.k = k;
-        this.p = p;
+    public static int calculateTotalBits(int n, double p) {
+        return (int) (-n * Math.log(p) / Math.pow(Math.log(2.0), 2.0));
+    }
+
+    public static int calculateNumberOfHashes(int n, double p) {
+        return Math.max(1, (int) Math.round((double) (calculateTotalBits(n, p) / n) * Math.log(2)));
+    }
+
+    public BloomFilter(int n) {
+        this(n, DEFAULT_FALSE_POSITIVE);
     }
 
     public BloomFilter(int n, double p) {
-        int m = (int) (-n * Math.log(p) / Math.pow(Math.log(2.0), 2.0));
-        int k = Math.max(1, (int) Math.round((double) (m / n) * Math.log(2)));
+        int m = calculateTotalBits(n, p);
+        int k = calculateNumberOfHashes(n, p);
 
         this.bitSet = new BitSet(m);
         this.m = m;
@@ -53,8 +58,12 @@ public final class BloomFilter {
         this.p = p;
     }
 
-    public BloomFilter(int n) {
-        this(n, DEFAULT_FALSE_POSITIVE);
+    public BloomFilter(BitSet bitSet, int m, int n, int k, double p) {
+        this.bitSet = bitSet;
+        this.m = m;
+        this.n = n;
+        this.k = k;
+        this.p = p;
     }
 
     public void add(byte[] data) {
@@ -135,8 +144,8 @@ public final class BloomFilter {
         ByteUtil.readAllBytes(bitsetBytes, index, bytes);
         BitSet bitSet = BitSet.valueOf(bitsetBytes);
 
-        int m = (int) (-n * Math.log(p) / Math.pow(Math.log(2.0), 2.0));
-        int k = Math.max(1, (int) Math.round((double) (m / n) * Math.log(2)));
+        int m = calculateTotalBits(n, p);
+        int k = calculateNumberOfHashes(n, p);
 
         return new BloomFilter(bitSet, m, n, k, p);
     }

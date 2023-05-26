@@ -308,7 +308,7 @@ public final class SSTable implements Closeable {
             for (Block block : blocks) {
                 Block.BlockIterator iter = Block.BlockIterator.createAndSeekToFirst(block);
                 while (iter.isValid()) {
-                    bloomFilter.add(iter.getKey());
+                    bloomFilter.add(iter.key());
                     iter.next();
                 }
             }
@@ -353,7 +353,7 @@ public final class SSTable implements Closeable {
         }
     }
 
-    public static final class SSTableIterator {
+    public static final class SSTableIterator implements StorageIterator {
         private final SSTable sst;
         private Block.BlockIterator blockIterator;
         private int blockIndex;
@@ -376,18 +376,22 @@ public final class SSTable implements Closeable {
             this.blockIndex = blockIndex;
         }
 
-        public byte[] getKey() {
-            return blockIterator.getKey();
+        @Override
+        public byte[] key() {
+            return blockIterator.key();
         }
 
-        public byte[] getValue() {
-            return blockIterator.getValue();
+        @Override
+        public byte[] value() {
+            return blockIterator.value();
         }
 
+        @Override
         public boolean isValid() {
             return blockIterator.isValid();
         }
 
+        @Override
         public void next() throws IOException {
             blockIterator.next();
             if (!blockIterator.isValid()) {

@@ -84,6 +84,7 @@ public final class Block implements Measurable {
             offsets[i] = ByteUtil.readU16(bytes, index);
             index += 2;
         }
+
         ByteUtil.readAllBytes(data, index, bytes);
         return new Block(offsets, data);
     }
@@ -171,8 +172,12 @@ public final class Block implements Measurable {
             currentSize = 0;
         }
 
+        public boolean isEmpty() {
+            return offsetByteList.isEmpty();
+        }
+
         public Block build() {
-            Preconditions.checkState(!offsetByteList.isEmpty(), "block should not be empty");
+            Preconditions.checkState(!isEmpty(), "block should not be empty");
 
             short[] offset = new short[offsetByteList.size() >>> 1];
             byte[] data = new byte[dataByteList.size()];
@@ -216,11 +221,11 @@ public final class Block implements Measurable {
             this.index = -1;
         }
 
-        public byte[] getKey() {
+        public byte[] key() {
             return key;
         }
 
-        public byte[] getValue() {
+        public byte[] value() {
             return value;
         }
 

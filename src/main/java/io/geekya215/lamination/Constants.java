@@ -9,6 +9,7 @@ public final class Constants {
 
     public static final String SST_FILE_SUFFIX = ".sst";
 
+    public static final int SIZE_OF_U8 = 1;
     public static final int SIZE_OF_U16 = 2;
     public static final int SIZE_OF_U32 = 4;
     public static final int SIZE_OF_U64 = 8;
@@ -16,4 +17,5 @@ public final class Constants {
     public static final int BYTE = 1;
     public static final int KB = BYTE << 10;
     public static final int MB = KB << 10;
+    public static final int GB = MB << 10;
 }

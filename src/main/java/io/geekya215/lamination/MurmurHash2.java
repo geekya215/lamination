@@ -36,7 +36,7 @@ public final class MurmurHash2 {
             case 2:
                 h ^= (data[index + 1] & 0xff) << 8;
             case 1:
-                h ^= (data[index] & 0xff);
+                h ^= (data[index    ] & 0xff);
                 h *= M32;
         }
 
@@ -83,7 +83,7 @@ public final class MurmurHash2 {
             case 2:
                 h ^= ((long) data[index + 1] & 0xff) << 8;
             case 1:
-                h ^= ((long) data[index] & 0xff);
+                h ^= ((long) data[index    ] & 0xff);
                 h *= M64;
         }
 

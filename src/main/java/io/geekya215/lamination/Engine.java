@@ -79,8 +79,8 @@ public final class Engine {
                             try (SSTable sst = SSTable.open(i, baseDir, blockCache)) {
                                 if (sst.containKey(key)) {
                                     SSTable.SSTableIterator iterator = SSTable.SSTableIterator.createAndSeekToKey(sst, key);
-                                    if (Arrays.equals(iterator.getKey(), key)) {
-                                        return ByteBuffer.wrap(iterator.getValue());
+                                    if (Arrays.equals(iterator.key(), key)) {
+                                        return ByteBuffer.wrap(iterator.value());
                                     }
                                 }
                             }

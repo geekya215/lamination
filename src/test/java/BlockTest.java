@@ -76,8 +76,8 @@ public class BlockTest {
         Block.BlockIterator iter = Block.BlockIterator.createAndSeekToFirst(block);
         int i = 0;
         while (iter.isValid()) {
-            byte[] key = iter.getKey();
-            byte[] value = iter.getValue();
+            byte[] key = iter.key();
+            byte[] value = iter.value();
             assertArrayEquals(keyOf(i), key);
             assertArrayEquals(valueOf(i), value);
             iter.next();
@@ -86,8 +86,8 @@ public class BlockTest {
 
         for (int j = 0; j < 100; j++) {
             iter.seekTo(j);
-            byte[] key = iter.getKey();
-            byte[] value = iter.getValue();
+            byte[] key = iter.key();
+            byte[] value = iter.value();
             assertArrayEquals(keyOf(j), key);
             assertArrayEquals(valueOf(j), value);
         }
@@ -100,8 +100,8 @@ public class BlockTest {
 
         for (int offset = 1; offset <= 5; offset++) {
             for (int i = 0; i < 100; i++) {
-                byte[] key = iter.getKey();
-                byte[] value = iter.getValue();
+                byte[] key = iter.key();
+                byte[] value = iter.value();
                 assertArrayEquals(keyOf(i), key);
                 assertArrayEquals(valueOf(i), value);
                 iter.seekToKey(String.format("key_%03d", i * 5 + offset).getBytes());
