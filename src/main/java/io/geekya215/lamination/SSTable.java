@@ -137,13 +137,10 @@ public final class SSTable implements Closeable {
 
     public Block readBlock(int blockIndex) throws IOException {
         int offset = metaBlocks.get(blockIndex).offset;
-        int offsetEnd;
+        int offsetEnd = (blockIndex + 1) >= metaBlocks.size()
+            ? metaBlockOffset
+            : metaBlocks.get(blockIndex + 1).offset;
 
-        if (blockIndex + 1 >= metaBlocks.size()) {
-            offsetEnd = metaBlockOffset;
-        } else {
-            offsetEnd = metaBlocks.get(blockIndex + 1).offset;
-        }
         byte[] bytes = new byte[offsetEnd - offset];
         file.seek(offset);
         file.readFully(bytes);
@@ -185,11 +182,11 @@ public final class SSTable implements Closeable {
     //
     //  -----------------------------
     // |        |     first key      |
-    // |-----------------------------|
+    // |--------+--------------------|
     // | offset | key_len |    key   |
     // |--------+---------+----------|
     // |   4B   |   2B    | keylen B |
-    //  ----------------------------
+    //  -----------------------------
     //
     public record MetaBlock(int offset, byte[] firstKey) implements Measurable {
         public static byte[] encode(List<MetaBlock> metaBlocks) {
@@ -404,7 +401,7 @@ public final class SSTable implements Closeable {
 
         public void seekToFirst() throws IOException {
             blockIndex = 0;
-            blockIterator = Block.BlockIterator.createAndSeekToFirst(sst.readBlock(0));
+            blockIterator = Block.BlockIterator.createAndSeekToFirst(sst.readCachedBlock(0));
         }
 
         public void seekToKey(byte[] key) throws IOException {

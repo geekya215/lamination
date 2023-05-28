@@ -133,9 +133,9 @@ public final class Block implements Measurable {
             int valueSize = value.length;
             int entrySize = 2 * SIZE_OF_U16 + keySize + valueSize;
 
-            // Todo
-            // for reducing call hierarchy we should check key and value at engine
-            Preconditions.checkArgument(keySize > 0, "key must not be empty");
+            // NOTICE
+            // for reducing call hierarchy we should check key and value if empty at engine
+
             Preconditions.checkArgument(
                 entrySize + SIZE_OF_U32 + 2 * SIZE_OF_U16 <= blockSize,
                 "entry size too large");

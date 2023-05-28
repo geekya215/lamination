@@ -1,5 +1,7 @@
 package io.geekya215.lamination;
 
+import io.geekya215.lamination.util.Preconditions;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -37,6 +39,8 @@ public final class Engine {
     public void put(byte[] key, byte[] value) throws IOException {
         try {
             lock.lock();
+            Preconditions.checkArgument(key.length > 0, "key must not be empty");
+            Preconditions.checkArgument(value.length > 0, "value must not be empty");
             if (memTable.size() > memtableSize) {
                 if (immutableMemTable != null) {
                     SSTable.SSTableBuilder ssTableBuilder = new SSTable.SSTableBuilder();
