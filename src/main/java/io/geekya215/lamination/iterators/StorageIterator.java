@@ -1,4 +1,4 @@
-package io.geekya215.lamination;
+package io.geekya215.lamination.iterators;
 
 import java.io.IOException;
 

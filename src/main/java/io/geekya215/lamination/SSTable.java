@@ -1,6 +1,7 @@
 package io.geekya215.lamination;
 
 import io.geekya215.lamination.exception.InvalidFormatException;
+import io.geekya215.lamination.iterators.StorageIterator;
 import io.geekya215.lamination.util.ByteUtil;
 import io.geekya215.lamination.util.Preconditions;
 
