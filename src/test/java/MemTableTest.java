@@ -9,8 +9,6 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.Iterator;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -69,23 +67,23 @@ public class MemTableTest {
     }
 
     @Test
-    void testMemTableIterator() {
+    void testMemTableIterator() throws IOException {
         MemTable memTable = MemTable.create();
         memTable.put(byteWrap("key1"), byteWrap("value1"));
         memTable.put(byteWrap("key2"), byteWrap("value2"));
         memTable.put(byteWrap("key3"), byteWrap("value3"));
         memTable.put(byteWrap("key4"), byteWrap("value4"));
 
-        Iterator<Map.Entry<ByteBuffer, ByteBuffer>> iterator = memTable.scan(byteWrap("key2"), byteWrap("key3"));
+        MemTable.MemTableIterator iterator = memTable.scan(byteWrap("key2"), byteWrap("key3"));
 
-        Map.Entry<ByteBuffer, ByteBuffer> e2 = iterator.next();
-        assertArrayEquals("key2".getBytes(), e2.getKey().array());
-        assertArrayEquals("value2".getBytes(), e2.getValue().array());
+        assertArrayEquals("key2".getBytes(), iterator.key());
+        assertArrayEquals("value2".getBytes(), iterator.value());
+        iterator.next();
 
-        Map.Entry<ByteBuffer, ByteBuffer> e3 = iterator.next();
-        assertArrayEquals("key3".getBytes(), e3.getKey().array());
-        assertArrayEquals("value3".getBytes(), e3.getValue().array());
+        assertArrayEquals("key3".getBytes(), iterator.key());
+        assertArrayEquals("value3".getBytes(), iterator.value());
+        iterator.next();
 
-        assertFalse(iterator.hasNext());
+        assertFalse(iterator.isValid());
     }
 }
