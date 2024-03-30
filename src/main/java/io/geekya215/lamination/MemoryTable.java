@@ -3,6 +3,8 @@ package io.geekya215.lamination;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -29,25 +31,34 @@ public final class MemoryTable {
         return new MemoryTable(id, new ConcurrentSkipListMap<>(Arrays::compare), null, new AtomicInteger());
     }
 
-    public static MemoryTable createWithWAL(int id, @NotNull Path path) {
+    public static MemoryTable createWithWAL(int id, @NotNull Path path) throws FileNotFoundException {
         return new MemoryTable(id, new ConcurrentSkipListMap<>(Arrays::compare), WriteAheadLog.create(path), new AtomicInteger());
     }
 
-    public static MemoryTable recoverFromWAL(int id, @NotNull Path path) {
+    public static MemoryTable recoverFromWAL(int id, @NotNull Path path) throws IOException {
         ConcurrentSkipListMap<byte[], byte[]> skipList = new ConcurrentSkipListMap<>(Arrays::compare);
-        return new MemoryTable(id, skipList, WriteAheadLog.recover(path, skipList), new AtomicInteger());
+        AtomicInteger approximateSize = new AtomicInteger();
+        return new MemoryTable(id, skipList, WriteAheadLog.recover(path, skipList, approximateSize), approximateSize);
     }
 
-    public void put(byte @NotNull [] key, byte @NotNull [] value) {
-        throw new UnsupportedOperationException();
+    public void put(byte @NotNull [] key, byte @NotNull [] value) throws IOException {
+        skipList.put(key, value);
+
+        approximateSize.getAndAdd(key.length + value.length);
+
+        if (wal != null) {
+            wal.put(key, value);
+        }
     }
 
-    public byte @NotNull [] get(byte @NotNull[] key) {
-        throw new UnsupportedOperationException();
+    public byte @NotNull [] get(byte @NotNull [] key) {
+        return skipList.get(key);
     }
 
-    public void sync() {
-        throw new UnsupportedOperationException();
+    public void syncWAL() throws IOException {
+        if (wal != null) {
+            wal.sync();
+        }
     }
 
     public int getId() {
