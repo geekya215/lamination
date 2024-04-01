@@ -19,11 +19,11 @@ public final class WriteAheadLog implements Closeable {
         this.lock = new ReentrantLock();
     }
 
-    public static WriteAheadLog create(@NotNull Path path) throws FileNotFoundException {
+    public static @NotNull WriteAheadLog create(@NotNull Path path) throws FileNotFoundException {
         return new WriteAheadLog(path.toFile(), false);
     }
 
-    public static WriteAheadLog recover(
+    public static @NotNull WriteAheadLog recover(
             @NotNull Path path,
             @NotNull ConcurrentSkipListMap<byte[], byte[]> skipList,
             @NotNull AtomicInteger approximateSize

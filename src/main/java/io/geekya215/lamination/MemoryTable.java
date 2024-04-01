@@ -7,10 +7,12 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class MemoryTable {
+    static final Comparator<byte[]> DEFAULT_COMPARATOR = Arrays::compare;
     private final int id;
     private final @NotNull ConcurrentSkipListMap<byte[], byte[]> skipList;
     private final @Nullable WriteAheadLog wal;
@@ -27,16 +29,16 @@ public final class MemoryTable {
         this.approximateSize = approximateSize;
     }
 
-    public static MemoryTable create(int id) {
-        return new MemoryTable(id, new ConcurrentSkipListMap<>(Arrays::compare), null, new AtomicInteger());
+    public static @NotNull MemoryTable create(int id) {
+        return new MemoryTable(id, new ConcurrentSkipListMap<>(DEFAULT_COMPARATOR), null, new AtomicInteger());
     }
 
-    public static MemoryTable createWithWAL(int id, @NotNull Path path) throws FileNotFoundException {
-        return new MemoryTable(id, new ConcurrentSkipListMap<>(Arrays::compare), WriteAheadLog.create(path), new AtomicInteger());
+    public static @NotNull MemoryTable createWithWAL(int id, @NotNull Path path) throws FileNotFoundException {
+        return new MemoryTable(id, new ConcurrentSkipListMap<>(DEFAULT_COMPARATOR), WriteAheadLog.create(path), new AtomicInteger());
     }
 
-    public static MemoryTable recoverFromWAL(int id, @NotNull Path path) throws IOException {
-        ConcurrentSkipListMap<byte[], byte[]> skipList = new ConcurrentSkipListMap<>(Arrays::compare);
+    public static @NotNull MemoryTable recoverFromWAL(int id, @NotNull Path path) throws IOException {
+        ConcurrentSkipListMap<byte[], byte[]> skipList = new ConcurrentSkipListMap<>(DEFAULT_COMPARATOR);
         AtomicInteger approximateSize = new AtomicInteger();
         return new MemoryTable(id, skipList, WriteAheadLog.recover(path, skipList, approximateSize), approximateSize);
     }
@@ -51,7 +53,7 @@ public final class MemoryTable {
         }
     }
 
-    public byte @NotNull [] get(byte @NotNull [] key) {
+    public byte @Nullable [] get(byte @NotNull [] key) {
         return skipList.get(key);
     }
 

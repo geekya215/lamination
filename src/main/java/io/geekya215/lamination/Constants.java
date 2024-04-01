@@ -10,6 +10,7 @@ public final class Constants {
     public static final int SIZE_OF_U16 = SIZE_OF_U8 << 1;
     public static final int SIZE_OF_U32 = SIZE_OF_U16 << 1;
     public static final int SIZE_OF_U64 = SIZE_OF_U32 << 1;
+
     private Constants() {
     }
 }
