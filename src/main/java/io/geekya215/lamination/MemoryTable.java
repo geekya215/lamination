@@ -1,5 +1,9 @@
 package io.geekya215.lamination;
 
+import io.geekya215.lamination.Bound.Excluded;
+import io.geekya215.lamination.Bound.Included;
+import io.geekya215.lamination.Bound.Unbounded;
+import io.geekya215.lamination.tuple.Tuple2;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -8,6 +12,9 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -57,6 +64,26 @@ public final class MemoryTable {
         return skipList.get(key);
     }
 
+    // NOTICE
+    // if upper < lower this method will throw IllegalArgumentException
+    public @NotNull MemoryTableIterator scan(@NotNull Bound<byte[]> lower, @NotNull Bound<byte[]> upper) {
+        Tuple2<Bound<byte[]>, Bound<byte[]>> range = Tuple2.of(lower, upper);
+
+        ConcurrentNavigableMap<byte[], byte[]> result = switch (range) {
+            case Tuple2(Included<byte[]> l, Included<byte[]> u) -> skipList.subMap(l.value(), true, u.value(), true);
+            case Tuple2(Included<byte[]> l, Excluded<byte[]> u) -> skipList.subMap(l.value(), true, u.value(), false);
+            case Tuple2(Included<byte[]> l, Unbounded<byte[]> _) -> skipList.tailMap(l.value(), true);
+            case Tuple2(Excluded<byte[]> l, Included<byte[]> u) -> skipList.subMap(l.value(), false, u.value(), true);
+            case Tuple2(Excluded<byte[]> l, Excluded<byte[]> u) -> skipList.subMap(l.value(), false, u.value(), false);
+            case Tuple2(Excluded<byte[]> l, Unbounded<byte[]> _) -> skipList.tailMap(l.value(), false);
+            case Tuple2(Unbounded<byte[]> _, Included<byte[]> u) -> skipList.headMap(u.value(), true);
+            case Tuple2(Unbounded<byte[]> _, Excluded<byte[]> u) -> skipList.headMap(u.value(), false);
+            case Tuple2(Unbounded<byte[]> _, Unbounded<byte[]> _) -> skipList;
+        };
+
+        return new MemoryTableIterator(result);
+    }
+
     public void syncWAL() throws IOException {
         if (wal != null) {
             wal.sync();
@@ -73,5 +100,40 @@ public final class MemoryTable {
 
     public boolean isEmpty() {
         return skipList.isEmpty();
+    }
+
+    public static final class MemoryTableIterator implements StorageIterator {
+        static final byte @NotNull [] EMPTY_BYTES = new byte[0];
+        static final @NotNull Map.Entry<byte[], byte[]> INITIAL_ITEM = Map.entry(EMPTY_BYTES, EMPTY_BYTES);
+
+        private final @NotNull ConcurrentNavigableMap<byte[], byte[]> skipList;
+        private final @NotNull Iterator<Map.Entry<byte[], byte[]>> iter;
+        private @NotNull Map.Entry<byte[], byte[]> current;
+
+        public MemoryTableIterator(@NotNull ConcurrentNavigableMap<byte[], byte[]> skipList) {
+            this.skipList = skipList;
+            this.iter = skipList.entrySet().iterator();
+            this.current = INITIAL_ITEM;
+        }
+
+        @Override
+        public byte @NotNull [] key() {
+            return current.getKey();
+        }
+
+        @Override
+        public byte @NotNull [] value() {
+            return current.getValue();
+        }
+
+        @Override
+        public boolean isValid() {
+            return current.getKey().length != 0;
+        }
+
+        @Override
+        public void next() {
+            current = iter.hasNext() ? iter.next() : INITIAL_ITEM;
+        }
     }
 }
