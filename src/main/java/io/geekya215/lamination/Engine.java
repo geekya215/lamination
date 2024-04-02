@@ -10,10 +10,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import static io.geekya215.lamination.Constants.EMPTY_BYTE_ARRAY;
+
 public final class Engine {
     static final String WAL_FILE_FORMAT = "%05d.wal";
     static final String SST_FILE_FORMAT = "%05d.sst";
-    static final byte[] DELETE_TOMBSTONE = new byte[0];
+    static final byte[] DELETE_TOMBSTONE = EMPTY_BYTE_ARRAY;
     private final @NotNull Storage storage;
     private final @NotNull ReentrantReadWriteLock rwLock;
     private final @NotNull ReentrantReadWriteLock.ReadLock readLock;
@@ -87,6 +89,8 @@ public final class Engine {
             }
 
             // find in immutable memory table
+            // imm_memtable1 -> imm_memtable2 -> imm_memtable3 -> ...
+            //    oldest                              least
             List<MemoryTable> immutableMemoryTables = storage.getImmutableMemoryTables();
             for (int i = immutableMemoryTables.size() - 1; i >= 0; i--) {
                 MemoryTable immMemoryTable = immutableMemoryTables.get(i);

@@ -27,12 +27,11 @@ public class MemoryTableIteratorTest {
         MemoryTable.MemoryTableIterator iter = memoryTable.scan(lower, upper);
 
         for (int i = 1; i <= 3; i++) {
-            iter.next();
             assertTrue(iter.isValid());
             assertArrayEquals("value%d".formatted(i).getBytes(), iter.value());
+            iter.next();
         }
 
-        iter.next();
         assertFalse(iter.isValid());
     }
 
@@ -43,12 +42,11 @@ public class MemoryTableIteratorTest {
         MemoryTable.MemoryTableIterator iter = memoryTable.scan(lower, upper);
 
         for (int i = 1; i < 3; i++) {
-            iter.next();
             assertTrue(iter.isValid());
             assertArrayEquals("value%d".formatted(i).getBytes(), iter.value());
+            iter.next();
         }
 
-        iter.next();
         assertFalse(iter.isValid());
     }
 
@@ -59,12 +57,11 @@ public class MemoryTableIteratorTest {
         MemoryTable.MemoryTableIterator iter = memoryTable.scan(lower, upper);
 
         for (int i = 1; i < 6; i++) {
-            iter.next();
             assertTrue(iter.isValid());
             assertArrayEquals("value%d".formatted(i).getBytes(), iter.value());
+            iter.next();
         }
 
-        iter.next();
         assertFalse(iter.isValid());
     }
 
@@ -75,12 +72,11 @@ public class MemoryTableIteratorTest {
         MemoryTable.MemoryTableIterator iter = memoryTable.scan(lower, upper);
 
         for (int i = 2; i <= 3; i++) {
-            iter.next();
             assertTrue(iter.isValid());
             assertArrayEquals("value%d".formatted(i).getBytes(), iter.value());
+            iter.next();
         }
 
-        iter.next();
         assertFalse(iter.isValid());
     }
 
@@ -91,12 +87,11 @@ public class MemoryTableIteratorTest {
         MemoryTable.MemoryTableIterator iter = memoryTable.scan(lower, upper);
 
         for (int i = 2; i < 3; i++) {
-            iter.next();
             assertTrue(iter.isValid());
             assertArrayEquals("value%d".formatted(i).getBytes(), iter.value());
+            iter.next();
         }
 
-        iter.next();
         assertFalse(iter.isValid());
     }
 
@@ -107,12 +102,11 @@ public class MemoryTableIteratorTest {
         MemoryTable.MemoryTableIterator iter = memoryTable.scan(lower, upper);
 
         for (int i = 2; i < 6; i++) {
-            iter.next();
             assertTrue(iter.isValid());
             assertArrayEquals("value%d".formatted(i).getBytes(), iter.value());
+            iter.next();
         }
 
-        iter.next();
         assertFalse(iter.isValid());
     }
 
@@ -123,12 +117,11 @@ public class MemoryTableIteratorTest {
         MemoryTable.MemoryTableIterator iter = memoryTable.scan(lower, upper);
 
         for (int i = 1; i <= 3; i++) {
-            iter.next();
             assertTrue(iter.isValid());
             assertArrayEquals("value%d".formatted(i).getBytes(), iter.value());
+            iter.next();
         }
 
-        iter.next();
         assertFalse(iter.isValid());
     }
 
@@ -139,12 +132,11 @@ public class MemoryTableIteratorTest {
         MemoryTable.MemoryTableIterator iter = memoryTable.scan(lower, upper);
 
         for (int i = 1; i < 3; i++) {
-            iter.next();
             assertTrue(iter.isValid());
             assertArrayEquals("value%d".formatted(i).getBytes(), iter.value());
+            iter.next();
         }
 
-        iter.next();
         assertFalse(iter.isValid());
     }
 
@@ -155,12 +147,11 @@ public class MemoryTableIteratorTest {
         MemoryTable.MemoryTableIterator iter = memoryTable.scan(lower, upper);
 
         for (int i = 1; i < 6; i++) {
-            iter.next();
             assertTrue(iter.isValid());
             assertArrayEquals("value%d".formatted(i).getBytes(), iter.value());
+            iter.next();
         }
 
-        iter.next();
         assertFalse(iter.isValid());
     }
 
@@ -170,7 +161,6 @@ public class MemoryTableIteratorTest {
         Bound<byte[]> upper = unbound();
         MemoryTable.MemoryTableIterator iter = memoryTable.scan(lower, upper);
 
-        iter.next();
         assertFalse(iter.isValid());
     }
 
@@ -180,7 +170,6 @@ public class MemoryTableIteratorTest {
         Bound<byte[]> lower = unbound();
         Bound<byte[]> upper = unbound();
         MemoryTable.MemoryTableIterator iter = emptyMemoryTable.scan(lower, upper);
-        iter.next();
         assertFalse(iter.isValid());
     }
 }

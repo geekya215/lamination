@@ -103,9 +103,6 @@ public final class MemoryTable {
     }
 
     public static final class MemoryTableIterator implements StorageIterator {
-        static final byte @NotNull [] EMPTY_BYTES = new byte[0];
-        static final @NotNull Map.Entry<byte[], byte[]> INITIAL_ITEM = Map.entry(EMPTY_BYTES, EMPTY_BYTES);
-
         private final @NotNull ConcurrentNavigableMap<byte[], byte[]> skipList;
         private final @NotNull Iterator<Map.Entry<byte[], byte[]>> iter;
         private @NotNull Map.Entry<byte[], byte[]> current;
@@ -113,7 +110,7 @@ public final class MemoryTable {
         public MemoryTableIterator(@NotNull ConcurrentNavigableMap<byte[], byte[]> skipList) {
             this.skipList = skipList;
             this.iter = skipList.entrySet().iterator();
-            this.current = INITIAL_ITEM;
+            this.current = iter.hasNext() ? iter.next() : EMPTY_ENTRY;
         }
 
         @Override
@@ -133,7 +130,7 @@ public final class MemoryTable {
 
         @Override
         public void next() {
-            current = iter.hasNext() ? iter.next() : INITIAL_ITEM;
+            current = iter.hasNext() ? iter.next() : EMPTY_ENTRY;
         }
     }
 }
