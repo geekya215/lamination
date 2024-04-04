@@ -2,6 +2,7 @@ package io.geekya215.lamination;
 
 import org.jetbrains.annotations.NotNull;
 
+import java.io.IOException;
 import java.util.Map;
 
 import static io.geekya215.lamination.Constants.EMPTY_BYTE_ARRAY;
@@ -15,5 +16,5 @@ public interface StorageIterator {
 
     boolean isValid();
 
-    void next();
+    void next() throws IOException;
 }

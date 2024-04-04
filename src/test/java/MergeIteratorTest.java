@@ -2,6 +2,7 @@ import io.geekya215.lamination.MergeIterator;
 import io.geekya215.lamination.tuple.Tuple2;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -22,7 +23,7 @@ public class MergeIteratorTest {
     }
 
     @Test
-    void testMergeIteratorOverwrite() {
+    void testMergeIteratorOverwrite() throws IOException {
         MockIterator iter1 = new MockIterator(List.of(
                 getBytesTuple2("a", "1.1"),
                 getBytesTuple2("b", "2.1"),
@@ -52,7 +53,7 @@ public class MergeIteratorTest {
     }
 
     @Test
-    void testMergeIteratorWithAllInvalid() {
+    void testMergeIteratorWithAllInvalid() throws IOException {
         MockIterator iter1 = new MockIterator(List.of());
         MockIterator iter2 = new MockIterator(List.of());
         MockIterator iter3 = new MockIterator(List.of());
@@ -63,7 +64,7 @@ public class MergeIteratorTest {
     }
 
     @Test
-    void testMergeIteratorWithSomeInvalid() {
+    void testMergeIteratorWithSomeInvalid() throws IOException {
         MockIterator iter1 = new MockIterator(List.of());
         MockIterator iter2 = new MockIterator(List.of(
                 getBytesTuple2("a", "1.1"),
@@ -83,7 +84,7 @@ public class MergeIteratorTest {
 
 
     @Test
-    void testMergeIteratorNormal() {
+    void testMergeIteratorNormal() throws IOException {
         MockIterator iter1 = new MockIterator(List.of(
                 getBytesTuple2("a", "1.1"),
                 getBytesTuple2("b", "1.2"),

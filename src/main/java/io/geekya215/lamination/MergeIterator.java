@@ -2,6 +2,7 @@ package io.geekya215.lamination;
 
 import org.jetbrains.annotations.NotNull;
 
+import java.io.IOException;
 import java.util.*;
 
 public final class MergeIterator implements StorageIterator {
@@ -17,7 +18,7 @@ public final class MergeIterator implements StorageIterator {
 
     // Todo
     // use priority queue for lazy evaluate
-    public static @NotNull MergeIterator create(@NotNull List<StorageIterator> iters) {
+    public static @NotNull MergeIterator create(@NotNull List<StorageIterator> iters) throws IOException {
         TreeMap<byte[], byte[]> map = new TreeMap<>(Arrays::compare);
         for (StorageIterator iter : iters) {
             while (iter.isValid()) {
