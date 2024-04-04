@@ -6,13 +6,11 @@ import org.jetbrains.annotations.Nullable;
 import java.util.HashMap;
 import java.util.Map;
 
-public class LRUCache<K, V extends Measurable> implements Cache<K, V> {
+public final class LRUCache<K, V extends Measurable> implements Cache<K, V> {
     private final @NotNull Map<K, Node<K, V>> cache;
     private final @NotNull Node<K, V> dummy;
     private final int capacity;
     private int size;
-
-    static final Object PLACEHOLDER = new Object();
 
     public LRUCache(int capacity) {
         this.cache = new HashMap<>();
