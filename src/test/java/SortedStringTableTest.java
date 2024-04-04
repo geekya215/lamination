@@ -1,4 +1,5 @@
 import io.geekya215.lamination.Engine;
+import io.geekya215.lamination.LRUCache;
 import io.geekya215.lamination.SortedStringTable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -6,6 +7,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Path;
 
+import static io.geekya215.lamination.Constants.KB;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class SortedStringTableTest {
@@ -16,7 +18,7 @@ public class SortedStringTableTest {
     void testBuildSSTWithSingleKey() throws IOException {
         SortedStringTable.SortedStringTableBuilder sstBuilder = new SortedStringTable.SortedStringTableBuilder(16);
         sstBuilder.put("1".getBytes(), "1.1".getBytes());
-        SortedStringTable sst = sstBuilder.build(0, Engine.getPathOfSST(tempDir, 0));
+        SortedStringTable sst = sstBuilder.build(0, new LRUCache<>(KB), Engine.getPathOfSST(tempDir, 0));
         sst.getFile().close();
     }
 
@@ -29,7 +31,7 @@ public class SortedStringTableTest {
         sstBuilder.put("4".getBytes(), "4.1".getBytes());
         sstBuilder.put("5".getBytes(), "5.1".getBytes());
         sstBuilder.put("6".getBytes(), "6.1".getBytes());
-        SortedStringTable sst = sstBuilder.build(0, Engine.getPathOfSST(tempDir, 0));
+        SortedStringTable sst = sstBuilder.build(0, new LRUCache<>(KB), Engine.getPathOfSST(tempDir, 0));
 
         assertTrue(sst.numberOfBlock() > 1);
 
@@ -49,13 +51,13 @@ public class SortedStringTableTest {
         for (int i = 0; i < 100; i++) {
             sstBuilder.put(keyOf(i), valueOf(i));
         }
-        return sstBuilder.build(0, Engine.getPathOfSST(tempDir, 0));
+        return sstBuilder.build(0, new LRUCache<>(KB), Engine.getPathOfSST(tempDir, 0));
     }
 
     @Test
     void testEncodeAndDecodeSortedStringTable() throws IOException {
         SortedStringTable sst = generateSortedStringTable();
-        SortedStringTable open = SortedStringTable.open(0, SortedStringTable.FileObject.open(Engine.getPathOfSST(tempDir, 0)));
+        SortedStringTable open = SortedStringTable.open(0, new LRUCache<>(KB), SortedStringTable.FileObject.open(Engine.getPathOfSST(tempDir, 0)));
         assertEquals(sst.numberOfBlock(), open.numberOfBlock());
 
         assertEquals(sst.getMetaBlocks(), open.getMetaBlocks());

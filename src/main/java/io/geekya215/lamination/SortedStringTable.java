@@ -28,6 +28,7 @@ public final class SortedStringTable {
     // should close file resource
     private final @NotNull FileObject file;
     private final @NotNull List<MetaBlock> metaBlocks;
+    private final @NotNull Cache<Long, Block> blockCache;
     private final byte @NotNull [] firstKey;
     private final byte @NotNull [] lastKey;
     private final int id;
@@ -38,19 +39,21 @@ public final class SortedStringTable {
     public SortedStringTable(
             @NotNull FileObject file,
             @NotNull List<MetaBlock> metaBlocks,
+            @NotNull Cache<Long, Block> blockCache,
             byte @NotNull [] firstKey,
             byte @NotNull [] lastKey,
             int id,
             int metaBlockOffset) {
         this.file = file;
         this.metaBlocks = metaBlocks;
+        this.blockCache = blockCache;
         this.firstKey = firstKey;
         this.lastKey = lastKey;
         this.id = id;
         this.metaBlockOffset = metaBlockOffset;
     }
 
-    public static @NotNull SortedStringTable open(int id, @NotNull FileObject file) throws IOException {
+    public static @NotNull SortedStringTable open(int id, @NotNull Cache<Long, Block> blockCache, @NotNull FileObject file) throws IOException {
         int size = (int) file.size;
 
         int metaBlockOffset = file.readInt(size - SIZE_OF_U32);
@@ -61,7 +64,18 @@ public final class SortedStringTable {
         final byte[] firstKey = metaBlocks.getFirst().firstKey();
         final byte[] lastKey = metaBlocks.getLast().lastKey();
 
-        return new SortedStringTable(file, metaBlocks, firstKey, lastKey, id, metaBlockOffset);
+        return new SortedStringTable(file, metaBlocks, blockCache, firstKey, lastKey, id, metaBlockOffset);
+    }
+
+    public @NotNull Block readBlockCache(int blockIndex) throws IOException {
+        long key = (id & 0xFFFFFFFFL << 32) | blockIndex;
+        Block cachedBlock = blockCache.get(key);
+        if (cachedBlock == null) {
+            Block block = readBlock(blockIndex);
+            blockCache.put(key, block);
+            return block;
+        }
+        return cachedBlock;
     }
 
     public @NotNull Block readBlock(int blockIndex) throws IOException {
@@ -181,7 +195,7 @@ public final class SortedStringTable {
             dataBlockBytes.add((byte) checksum);
         }
 
-        public @NotNull SortedStringTable build(int id, @NotNull Path path) throws IOException {
+        public @NotNull SortedStringTable build(int id, @NotNull Cache<Long, Block> blockCache, @NotNull Path path) throws IOException {
             // flush remaining data to block
             generateBlock();
 
@@ -205,7 +219,7 @@ public final class SortedStringTable {
 
             FileObject file = FileObject.create(path, buf);
 
-            return new SortedStringTable(file, metaBlocks, metaBlocks.getFirst().firstKey(), metaBlocks.getLast().lastKey(), id, metaBlockOffset);
+            return new SortedStringTable(file, metaBlocks, blockCache, metaBlocks.getFirst().firstKey(), metaBlocks.getLast().lastKey(), id, metaBlockOffset);
         }
     }
 
@@ -224,36 +238,36 @@ public final class SortedStringTable {
         // use helper function to abstract common logic for
         // seek to first and seek to key
         public static @NotNull SortedStringTableIterator createAndSeekToFirst(@NotNull SortedStringTable sst) throws IOException {
-            Block.BlockIterator iter = Block.BlockIterator.createAndSeekToFirst(sst.readBlock(0));
+            Block.BlockIterator iter = Block.BlockIterator.createAndSeekToFirst(sst.readBlockCache(0));
             return new SortedStringTableIterator(sst, iter, 0);
         }
 
         public static @NotNull SortedStringTableIterator createAndSeekToKey(@NotNull SortedStringTable sst, byte @NotNull [] key) throws IOException {
             int idx = sst.findBlockIndex(key);
-            Block.BlockIterator iter = Block.BlockIterator.createAndSeekToKey(sst.readBlock(idx), key);
+            Block.BlockIterator iter = Block.BlockIterator.createAndSeekToKey(sst.readBlockCache(idx), key);
             if (!iter.isValid()) {
                 if (idx + 1 < sst.numberOfBlock()) {
                     idx += 1;
-                    iter = Block.BlockIterator.createAndSeekToFirst(sst.readBlock(idx));
+                    iter = Block.BlockIterator.createAndSeekToFirst(sst.readBlockCache(idx));
                 }
             }
             return new SortedStringTableIterator(sst, iter, idx);
         }
 
         public void seekToFirst() throws IOException {
-            iter = Block.BlockIterator.createAndSeekToFirst(sst.readBlock(0));
+            iter = Block.BlockIterator.createAndSeekToFirst(sst.readBlockCache(0));
             blockIndex = 0;
         }
 
         public void seekToKey(byte @NotNull [] key) throws IOException {
             int idx = sst.findBlockIndex(key);
             blockIndex = idx;
-            Block.BlockIterator seekIter = Block.BlockIterator.createAndSeekToKey(sst.readBlock(idx), key);
+            Block.BlockIterator seekIter = Block.BlockIterator.createAndSeekToKey(sst.readBlockCache(idx), key);
             if (!seekIter.isValid()) {
                 idx += 1;
                 if (idx < sst.numberOfBlock()) {
                     blockIndex = idx;
-                    iter = Block.BlockIterator.createAndSeekToFirst(sst.readBlock(blockIndex));
+                    iter = Block.BlockIterator.createAndSeekToFirst(sst.readBlockCache(blockIndex));
                 }
             } else {
                 iter = seekIter;
@@ -281,7 +295,7 @@ public final class SortedStringTable {
             if (!iter.isValid()) {
                 blockIndex += 1;
                 if (blockIndex < sst.numberOfBlock()) {
-                    iter = Block.BlockIterator.createAndSeekToFirst(sst.readBlock(blockIndex));
+                    iter = Block.BlockIterator.createAndSeekToFirst(sst.readBlockCache(blockIndex));
                 }
             }
         }
