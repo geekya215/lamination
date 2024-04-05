@@ -29,6 +29,7 @@ public final class SortedStringTable {
     private final @NotNull FileObject file;
     private final @NotNull List<MetaBlock> metaBlocks;
     private final @NotNull Cache<Long, Block> blockCache;
+    private final @NotNull BloomFilter bloomFilter;
     private final byte @NotNull [] firstKey;
     private final byte @NotNull [] lastKey;
     private final int id;
@@ -40,6 +41,7 @@ public final class SortedStringTable {
             @NotNull FileObject file,
             @NotNull List<MetaBlock> metaBlocks,
             @NotNull Cache<Long, Block> blockCache,
+            @NotNull BloomFilter bloomFilter,
             byte @NotNull [] firstKey,
             byte @NotNull [] lastKey,
             int id,
@@ -47,6 +49,7 @@ public final class SortedStringTable {
         this.file = file;
         this.metaBlocks = metaBlocks;
         this.blockCache = blockCache;
+        this.bloomFilter = bloomFilter;
         this.firstKey = firstKey;
         this.lastKey = lastKey;
         this.id = id;
@@ -56,15 +59,22 @@ public final class SortedStringTable {
     public static @NotNull SortedStringTable open(int id, @NotNull Cache<Long, Block> blockCache, @NotNull FileObject file) throws IOException {
         int size = (int) file.size;
 
-        int metaBlockOffset = file.readInt(size - SIZE_OF_U32);
+        int bloomFilterOffset = file.readInt(size - SIZE_OF_U32);
 
-        final byte[] buf = file.read(metaBlockOffset, size - SIZE_OF_U32 - metaBlockOffset);
-        List<MetaBlock> metaBlocks = MetaBlock.decode(buf);
+        int bloomFilterBufLength = size - SIZE_OF_U32 - bloomFilterOffset;
+        final byte[] bloomFilterBuf = file.read(bloomFilterOffset, bloomFilterBufLength);
+        BloomFilter bloomFilter = BloomFilter.decode(bloomFilterBuf);
+
+        int metaBlockOffset = file.readInt(bloomFilterOffset - SIZE_OF_U32);
+
+        int metaBlockBufLength = bloomFilterOffset - SIZE_OF_U32 - metaBlockOffset;
+        final byte[] metaBlocksBuf = file.read(metaBlockOffset, metaBlockBufLength);
+        List<MetaBlock> metaBlocks = MetaBlock.decode(metaBlocksBuf);
 
         final byte[] firstKey = metaBlocks.getFirst().firstKey();
         final byte[] lastKey = metaBlocks.getLast().lastKey();
 
-        return new SortedStringTable(file, metaBlocks, blockCache, firstKey, lastKey, id, metaBlockOffset);
+        return new SortedStringTable(file, metaBlocks, blockCache, bloomFilter, firstKey, lastKey, id, metaBlockOffset);
     }
 
     public @NotNull Block readBlockCache(int blockIndex) throws IOException {
@@ -119,6 +129,10 @@ public final class SortedStringTable {
         return metaBlocks;
     }
 
+    public @NotNull BloomFilter getBloomFilter() {
+        return bloomFilter;
+    }
+
     public byte @NotNull [] getFirstKey() {
         return firstKey;
     }
@@ -142,6 +156,7 @@ public final class SortedStringTable {
     public static final class SortedStringTableBuilder {
         private @NotNull Block.BlockBuilder blockBuilder;
         private final @NotNull List<Byte> dataBlockBytes;
+        private final @NotNull List<Long> keysHash;
         private final @NotNull List<MetaBlock> metaBlocks;
         private byte @NotNull [] firstKey;
         private byte @NotNull [] lastKey;
@@ -150,6 +165,7 @@ public final class SortedStringTable {
         public SortedStringTableBuilder(int blockSize) {
             this.blockBuilder = new Block.BlockBuilder(blockSize);
             this.dataBlockBytes = new ArrayList<>();
+            this.keysHash = new ArrayList<>();
             this.metaBlocks = new ArrayList<>();
             this.firstKey = EMPTY_BYTE_ARRAY;
             this.lastKey = EMPTY_BYTE_ARRAY;
@@ -160,6 +176,8 @@ public final class SortedStringTable {
             if (firstKey.length == 0) {
                 firstKey = key;
             }
+
+            keysHash.add(MurmurHash2.hash64(key, key.length));
 
             if (blockBuilder.put(key, value)) {
                 lastKey = key;
@@ -200,10 +218,19 @@ public final class SortedStringTable {
             generateBlock();
 
             final byte[] metaBlockBuf = MetaBlock.encode(metaBlocks);
+            int metaBlockBufLength = metaBlockBuf.length;
+
             int metaBlockOffset = dataBlockBytes.size();
 
-            int metaBlockBufLength = metaBlockBuf.length;
-            final byte[] buf = new byte[metaBlockOffset + metaBlockBufLength + SIZE_OF_U32];
+            BloomFilter bloomFilter = new BloomFilter(keysHash.size());
+            for (Long hash : keysHash) {
+                bloomFilter.mappingHashToBitset(hash);
+            }
+
+            byte[] bloomFilterBuf = bloomFilter.encode();
+            int bloomFilterBufLength = bloomFilterBuf.length;
+
+            final byte[] buf = new byte[metaBlockOffset + metaBlockBufLength + SIZE_OF_U32 + bloomFilterBufLength + SIZE_OF_U32];
 
             for (int i = 0; i < dataBlockBytes.size(); i++) {
                 buf[i] = dataBlockBytes.get(i);
@@ -212,14 +239,26 @@ public final class SortedStringTable {
             System.arraycopy(metaBlockBuf, 0, buf, metaBlockOffset, metaBlockBufLength);
 
             int cursor = metaBlockOffset + metaBlockBuf.length;
+
             buf[cursor] = (byte) (metaBlockOffset >> 24);
             buf[cursor + 1] = (byte) (metaBlockOffset >> 16);
             buf[cursor + 2] = (byte) (metaBlockOffset >> 8);
             buf[cursor + 3] = (byte) metaBlockOffset;
+            cursor += 4;
+
+            int bloomFilterOffset = cursor;
+
+            System.arraycopy(bloomFilterBuf, 0, buf, cursor, bloomFilterBufLength);
+            cursor += bloomFilterBufLength;
+
+            buf[cursor] = (byte) (bloomFilterOffset >> 24);
+            buf[cursor + 1] = (byte) (bloomFilterOffset >> 16);
+            buf[cursor + 2] = (byte) (bloomFilterOffset >> 8);
+            buf[cursor + 3] = (byte) bloomFilterOffset;
 
             FileObject file = FileObject.create(path, buf);
 
-            return new SortedStringTable(file, metaBlocks, blockCache, metaBlocks.getFirst().firstKey(), metaBlocks.getLast().lastKey(), id, metaBlockOffset);
+            return new SortedStringTable(file, metaBlocks, blockCache, bloomFilter, metaBlocks.getFirst().firstKey(), metaBlocks.getLast().lastKey(), id, metaBlockOffset);
         }
     }
 
