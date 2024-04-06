@@ -1,232 +1,212 @@
 package io.geekya215.lamination;
 
-import io.geekya215.lamination.util.FileUtil;
-import io.geekya215.lamination.util.ByteUtil;
-import io.geekya215.lamination.util.Preconditions;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-import static io.geekya215.lamination.Constants.*;
+import static io.geekya215.lamination.Constants.EMPTY_BYTE_ARRAY;
+import static io.geekya215.lamination.Constants.SIZE_OF_U16;
+
 
 //
-//  -----------------------------------------------------------------------
-// |                               Block                                   |
-// |-----------------------------------------------------------------------|
-// |  crc32  | num of elements |   offsets(2B/per)   |       entries       |
-// |---------+-----------------+---------------------+---------------------|
-// |    4B   |        2B       |  2B  |  2B  |  ...  |  ?B  |  ?B  |  ...  |
-//  -----------------------------------------------------------------------
+// +--------------------------------------+-----------------------------------------+-----------------+
+// |             Data Section             |              Offset Section             |      Extra      |
+// +----------+----------+-----+----------+-----------+-----------+-----+-----------+-----------------+
+// | Entry #1 | Entry #2 | ... | Entry #N | Offset #1 | Offset #2 | ... | Offset #N | num_of_elements |
+// +----------+----------+-----+----------+-----------+-----------+-----+-----------+-----------------+
 //
-public final class Block implements Measurable {
-    private final short[] offsets;
-    private final byte[] data;
+public record Block(byte @NotNull [] data, short @NotNull [] offsets) implements Measurable, Encoder {
 
-    public Block(short[] offsets, byte[] data) {
-        this.offsets = offsets;
-        this.data = data;
-    }
+    public static @NotNull Block decode(byte @NotNull [] buf) {
+        int cursor = buf.length;
 
-    public short[] getOffsets() {
-        return offsets;
-    }
+        // read number of elements
+        cursor -= SIZE_OF_U16;
+        int numOfElements = buf[cursor] << 8 | buf[cursor + 1] & 0xFF;
 
-    public byte[] getData() {
-        return data;
-    }
-
-    public byte[] encode() {
-        int blockSize = estimateSize();
-        byte[] bytes = new byte[blockSize];
-        int index = 4;
-
-        // num of elements
-        int numOfElements = offsets.length;
-        ByteUtil.writeU32AsU16(bytes, index, numOfElements);
-        index += 2;
-
-        // offsets
-        for (short o : offsets) {
-            ByteUtil.writeU16(bytes, index, o);
-            index += 2;
-        }
-
-        // data
-        ByteUtil.writeAllBytes(bytes, index, data);
-
-        // crc32
-        FileUtil.writeCRC32(bytes);
-
-        return bytes;
-    }
-
-    public static Block decode(byte[] bytes) {
-        int blockSize = bytes.length;
-
-        FileUtil.checkCRC32(bytes);
-
-        //  -------------------------
-        // | crc32 | num of elements |
-        // |-------+-----------------|
-        // |   4B  |       2B        |
-        //  -------------------------
-        // ^       ^                 ^
-        // 0       4                 6
-        int index = 4;
-        int numOfElements = ByteUtil.readU16AsU32(bytes, index);
-        index += 2;
-
-        short[] offsets = new short[numOfElements];
-        byte[] data = new byte[blockSize - SIZE_OF_U32 - SIZE_OF_U16 - (numOfElements << 1)];
-
+        // read offset section
+        final short[] offsets = new short[numOfElements];
+        cursor -= numOfElements * 2;
         for (int i = 0; i < numOfElements; i++) {
-            offsets[i] = ByteUtil.readU16(bytes, index);
-            index += 2;
+            int idx = cursor + 2 * i;
+            offsets[i] = (short) (buf[idx] << 8 | buf[idx + 1] & 0xFF);
         }
 
-        ByteUtil.readAllBytes(data, index, bytes);
-        return new Block(offsets, data);
-    }
+        // read data section
+        final byte[] data = new byte[cursor];
+        System.arraycopy(buf, 0, data, 0, cursor);
 
-    public byte[] firstKey() {
-        int keySize = ByteUtil.readU16AsU32(data, 0);
-        byte[] key = new byte[keySize];
-        ByteUtil.readAllBytes(key, 4, data);
-        return key;
+        return new Block(data, offsets);
     }
 
     @Override
+    public byte @NotNull [] encode() {
+        int dataLength = data.length;
+        int numOfElements = offsets.length;
+
+        final byte[] buf = new byte[dataLength + (2 * numOfElements) + SIZE_OF_U16];
+
+        // write data section
+        System.arraycopy(data, 0, buf, 0, dataLength);
+
+        // write offset section
+        int cursor = dataLength;
+        for (short offset : offsets) {
+            buf[cursor] = (byte) (offset >> 8);
+            buf[cursor + 1] = (byte) offset;
+            cursor += 2;
+        }
+
+        // write number of elements
+        buf[cursor] = (byte) (numOfElements >> 8);
+        buf[cursor + 1] = (byte) numOfElements;
+
+        return buf;
+    }
+
+    public byte @NotNull [] getFirstKey() {
+        int keyLength = data[0] << 8 | data[1] & 0xFF;
+        final byte[] buf = new byte[keyLength];
+        System.arraycopy(data, 2, buf, 0, keyLength);
+        return buf;
+    }
+
+    // Notice
+    // estimate size not equal encode byte buf length
+    @Override
     public int estimateSize() {
-        return SIZE_OF_U32 + SIZE_OF_U16 + 2 * offsets.length + data.length;
+        return data.length + offsets.length * SIZE_OF_U16;
     }
 
     public static final class BlockBuilder {
-        private final List<Byte> offsetByteList;
-        private final List<Byte> dataByteList;
+        private final @NotNull List<Byte> dataByteList;
+        // use list of byte for offset because JDK cached all byte value
+        private final @NotNull List<Byte> offsetsByteList;
         private final int blockSize;
-        private int currentSize;
-
-        public BlockBuilder() {
-            this(Options.DEFAULT_BLOCK_SIZE);
-        }
 
         public BlockBuilder(int blockSize) {
-            Preconditions.checkArgument(blockSize > 0, "block size must greater than 0 byte");
-            this.offsetByteList = new ArrayList<>();
             this.dataByteList = new ArrayList<>();
+            this.offsetsByteList = new ArrayList<>();
             this.blockSize = blockSize;
-            this.currentSize = 0;
+        }
+
+        public int estimateSize() {
+            return dataByteList.size() + offsetsByteList.size() + SIZE_OF_U16;
         }
 
         //
-        //  -------------------------------------------
-        // |                   entry                   |
-        // |-------------------------------------------|
-        // | key_len | value_len |    key   |   value  |
-        // |---------+-----------+----------+----------|
-        // |    2B   |     2B    | keylen B | varlen B |
-        //  ------------------------------------------
+        // +-------------------------------------------------------------------+-----+
+        // |                           Entry #1                                | ... |
+        // +--------------+---------------+----------------+-------------------+-----+
+        // | key_len (2B) | key (key_len) | value_len (2B) | value (value_len) | ... |
+        // +--------------+---------------+----------------+-------------------+-----+
         //
-        public boolean put(byte[] key, byte[] value) {
-            int keySize = key.length;
-            int valueSize = value.length;
-            int entrySize = 2 * SIZE_OF_U16 + keySize + valueSize;
-
+        public boolean put(byte @NotNull [] key, byte @NotNull [] value) {
             // NOTICE
-            // for reducing call hierarchy we should check key and value if empty at engine
+            // for reducing call hierarchy check key if empty at engine
 
-            Preconditions.checkArgument(
-                entrySize + SIZE_OF_U32 + 2 * SIZE_OF_U16 <= blockSize,
-                "entry size too large");
+            int keyLength = key.length;
+            int valueLength = value.length;
+            int entryLength = keyLength + valueLength;
 
-            if (currentSize + entrySize + SIZE_OF_U32 + 2 * SIZE_OF_U16 > blockSize) {
+            // keyLength + valueLength + offset => 2B + 2B + 2B
+            int delta = entryLength + 3 * SIZE_OF_U16;
+
+            if (estimateSize() + delta > blockSize && !isEmpty()) {
                 return false;
             }
 
-            offsetByteList.add((byte) (currentSize >> 8));
-            offsetByteList.add((byte) currentSize);
+            offsetsByteList.add((byte) (dataByteList.size() >> 8));
+            offsetsByteList.add((byte) dataByteList.size());
 
-            dataByteList.add((byte) (keySize >> 8));
-            dataByteList.add((byte) keySize);
-            dataByteList.add((byte) (valueSize >> 8));
-            dataByteList.add((byte) valueSize);
+            // Todo
+            // consider implement key overlap later
+            dataByteList.add((byte) (keyLength >> 8));
+            dataByteList.add((byte) keyLength);
 
             for (byte k : key) {
                 dataByteList.add(k);
             }
 
+            dataByteList.add((byte) (valueLength >> 8));
+            dataByteList.add((byte) valueLength);
+
             for (byte v : value) {
                 dataByteList.add(v);
             }
 
-            currentSize += entrySize;
-
             return true;
         }
 
-        // avoid create new builder
-        public void reset() {
-            offsetByteList.clear();
-            dataByteList.clear();
-            currentSize = 0;
-        }
-
         public boolean isEmpty() {
-            return offsetByteList.isEmpty();
+            return offsetsByteList.isEmpty();
         }
 
-        public Block build() {
-            Preconditions.checkState(!isEmpty(), "block should not be empty");
-
-            short[] offset = new short[offsetByteList.size() >>> 1];
-            byte[] data = new byte[dataByteList.size()];
-
-            int index = 0;
-            for (int i = 0; i < offsetByteList.size() >>> 1; i++) {
-                offset[i] = (short) (((offsetByteList.get(index) & 0xff) << 8) | (offsetByteList.get(index + 1) & 0xff));
-                index += 2;
+        public @NotNull Block build() {
+            if (isEmpty()) {
+                throw new IllegalArgumentException("block should not be empty");
             }
 
-            for (int i = 0; i < dataByteList.size(); i++) {
+            int dataLength = dataByteList.size();
+            final byte[] data = new byte[dataLength];
+            for (int i = 0; i < dataLength; i++) {
                 data[i] = dataByteList.get(i);
             }
 
-            return new Block(offset, data);
+            int offsetsLength = offsetsByteList.size() >>> 1;
+            final short[] offsets = new short[offsetsLength];
+            for (int i = 0; i < offsetsLength; i++) {
+                offsets[i] = (short) (offsetsByteList.get(2 * i) << 8 | offsetsByteList.get(2 * i + 1) & 0xFF);
+            }
+
+            return new Block(data, offsets);
         }
     }
 
     public static final class BlockIterator {
-        private final Block block;
-        private byte[] key;
-        private byte[] value;
+        private final @NotNull Block block;
+        private final byte @NotNull [] firstKey;
+        private byte @NotNull [] key;
+        private int valueRangeFrom;
+        private int valueRangeTo;
         private int index;
 
-        public static BlockIterator createAndSeekToFirst(Block block) {
-            BlockIterator blockIterator = new BlockIterator(block);
-            blockIterator.seekTo(0);
-            return blockIterator;
-        }
-
-        public static BlockIterator createAndSeekToKey(Block block, byte[] key) {
-            BlockIterator blockIterator = new BlockIterator(block);
-            blockIterator.seekToKey(key);
-            return blockIterator;
-        }
-
-        public BlockIterator(Block block) {
+        public BlockIterator(@NotNull Block block) {
             this.block = block;
-            this.key = EMPTY_BYTES;
-            this.value = EMPTY_BYTES;
-            this.index = -1;
+            this.firstKey = block.getFirstKey();
+            this.key = EMPTY_BYTE_ARRAY;
+            this.valueRangeFrom = 0;
+            this.valueRangeTo = 0;
+            this.index = 0;
         }
 
-        public byte[] key() {
+        public static @NotNull BlockIterator createAndSeekToFirst(@NotNull Block block) {
+            BlockIterator iter = new BlockIterator(block);
+            iter.seekToFirst();
+            return iter;
+        }
+
+        public static @NotNull BlockIterator createAndSeekToKey(@NotNull Block block, byte @NotNull [] key) {
+            BlockIterator iter = new BlockIterator(block);
+            iter.seekToKey(key);
+            return iter;
+        }
+
+        public byte @NotNull [] key() {
             return key;
         }
 
-        public byte[] value() {
-            return value;
+        public byte @NotNull [] value() {
+            int valueLength = valueRangeTo - valueRangeFrom;
+            final byte[] buf = new byte[valueLength];
+            System.arraycopy(block.data, valueRangeFrom, buf, 0, valueLength);
+            return buf;
+        }
+
+        public boolean isValid() {
+            return key.length != 0;
         }
 
         public void next() {
@@ -234,50 +214,52 @@ public final class Block implements Measurable {
             seekTo(index);
         }
 
-        public boolean isValid() {
-            return key.length != 0;
+        public void seekTo(int idx) {
+            if (idx >= block.offsets.length) {
+                key = EMPTY_BYTE_ARRAY;
+                valueRangeFrom = 0;
+                valueRangeTo = 0;
+            } else {
+                int offset = block.offsets[idx];
+                seekToOffset(offset);
+                index = idx;
+            }
+        }
+
+        public void seekToOffset(int offset) {
+            final byte[] data = block.data;
+            int cursor = offset;
+
+            int keyLength = data[cursor] << 8 | data[cursor + 1] & 0xFF;
+            cursor += 2;
+
+            final byte[] newKey = new byte[keyLength];
+            System.arraycopy(data, cursor, newKey, 0, keyLength);
+            key = newKey;
+            cursor += keyLength;
+
+            int valueLength = data[cursor] << 8 | data[cursor + 1] & 0xFF;
+            cursor += 2;
+
+            valueRangeFrom = cursor;
+            valueRangeTo = cursor + valueLength;
         }
 
         public void seekToFirst() {
             seekTo(0);
         }
 
-        public void seekTo(int index) {
-            if (index >= block.getOffsets().length) {
-                key = EMPTY_BYTES;
-                value = EMPTY_BYTES;
-            } else {
-                int offset = block.getOffsets()[index];
-                seekToOffset(offset);
-                this.index = index;
-            }
-        }
-
-        void seekToOffset(int offset) {
-            byte[] data = block.getData();
-            int keySize = ByteUtil.readU16AsU32(data, offset);
-            offset += 2;
-            int valueSize = ByteUtil.readU16AsU32(data, offset);
-            offset += 2;
-
-            byte[] keyBytes = new byte[keySize];
-            byte[] valueBytes = new byte[valueSize];
-            ByteUtil.readAllBytes(keyBytes, offset, data);
-            ByteUtil.readAllBytes(valueBytes, offset + keySize, data);
-
-            key = keyBytes;
-            value = valueBytes;
-        }
-
-        // Seek to the first key that >= `key`.
-        public void seekToKey(byte[] key) {
+        // Seek to the first target that >= target
+        public void seekToKey(byte @NotNull [] target) {
             int low = 0;
-            int high = block.getOffsets().length;
+            int high = block.offsets.length;
             while (low < high) {
                 int mid = low + (high - low) / 2;
                 seekTo(mid);
+                // Todo
+                // assertion can be removed?
                 assert isValid();
-                int cmp = Arrays.compare(this.key, key);
+                int cmp = Arrays.compare(key, target);
                 if (cmp < 0) {
                     low = mid + 1;
                 } else if (cmp == 0) {

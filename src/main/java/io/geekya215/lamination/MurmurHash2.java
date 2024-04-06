@@ -1,6 +1,6 @@
 package io.geekya215.lamination;
 
-import io.geekya215.lamination.util.ByteUtil;
+import org.jetbrains.annotations.NotNull;
 
 public final class MurmurHash2 {
     private static final int S32 = 0x9747b28c;
@@ -14,14 +14,21 @@ public final class MurmurHash2 {
     private MurmurHash2() {
     }
 
-    public static int hash32(final byte[] data, int length, int seed) {
+    public static int hash32(final byte @NotNull [] data, int length) {
+        return hash32(data, length, S32);
+    }
+
+    public static int hash32(final byte @NotNull [] data, int length, int seed) {
         int h = seed ^ length;
 
         final int nblocks = length >> 2;
 
         for (int i = 0; i < nblocks; i++) {
             final int index = (i << 2);
-            int k = ByteUtil.readU32(data, index);
+            int k = (data[index    ] & 0xFF) <<  0 |
+                    (data[index + 1] & 0xFF) <<  8 |
+                    (data[index + 2] & 0xFF) << 16 |
+                    (data[index + 3] & 0xFF) << 24;
             k *= M32;
             k ^= k >>> R32;
             k *= M32;
@@ -32,11 +39,11 @@ public final class MurmurHash2 {
         final int index = (nblocks << 2);
         switch (length - index) {
             case 3:
-                h ^= (data[index + 2] & 0xff) << 16;
+                h ^= (data[index + 2] & 0xFF) << 16;
             case 2:
-                h ^= (data[index + 1] & 0xff) << 8;
+                h ^= (data[index + 1] & 0xFF) << 8;
             case 1:
-                h ^= (data[index    ] & 0xff);
+                h ^= (data[index    ] & 0xFF);
                 h *= M32;
         }
 
@@ -47,18 +54,25 @@ public final class MurmurHash2 {
         return h;
     }
 
-    public static int hash32(final byte[] data, final int length) {
-        return hash32(data, length, S32);
+    public static long hash64(final byte @NotNull [] data, int length) {
+        return hash64(data, length, S64);
     }
 
-    public static long hash64(final byte[] data, int length, int seed) {
+    public static long hash64(final byte @NotNull [] data, int length, int seed) {
         long h = (seed & 0xffffffffL) ^ (length * M64);
 
         final int nblocks = length >> 3;
 
         for (int i = 0; i < nblocks; i++) {
             final int index = (i << 3);
-            long k = ByteUtil.readU64(data, index);
+            long k = (data[index    ] & 0xFFL) <<  0 |
+                     (data[index + 1] & 0xFFL) <<  8 |
+                     (data[index + 2] & 0xFFL) << 16 |
+                     (data[index + 3] & 0xFFL) << 24 |
+                     (data[index + 4] & 0xFFL) << 32 |
+                     (data[index + 5] & 0xFFL) << 40 |
+                     (data[index + 6] & 0xFFL) << 48 |
+                     (data[index + 7] & 0xFFL) << 56;
 
             k *= M64;
             k ^= k >>> R64;
@@ -92,9 +106,5 @@ public final class MurmurHash2 {
         h ^= h >>> R64;
 
         return h;
-    }
-
-    public static long hash64(final byte[] data, final int length) {
-        return hash64(data, length, S64);
     }
 }
