@@ -60,7 +60,15 @@ public final class Engine implements Closeable {
     public static @NotNull Engine open(@NotNull Path path, @NotNull Options options) {
         Cache<Long, Block> blockCache = new LRUCache<>(32 * MB);
         ScheduledExecutorService flushThread = Executors.newSingleThreadScheduledExecutor();
-        Engine engine = new Engine(Storage.create(options), new ReentrantReadWriteLock(), new ReentrantLock(), blockCache, options, path, new AtomicInteger(), flushThread);
+        Engine engine =
+                new Engine(
+                        Storage.create(options),
+                        new ReentrantReadWriteLock(),
+                        new ReentrantLock(), blockCache,
+                        options,
+                        path,
+                        new AtomicInteger(),
+                        flushThread);
         flushThread.scheduleWithFixedDelay(() -> {
             try {
                 engine.triggerFlush();

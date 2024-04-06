@@ -9,13 +9,14 @@ import java.util.List;
 import static io.geekya215.lamination.Constants.EMPTY_BYTE_ARRAY;
 import static io.geekya215.lamination.Constants.SIZE_OF_U16;
 
-
 //
-// +--------------------------------------+-----------------------------------------+-----------------+
-// |             Data Section             |              Offset Section             |      Extra      |
-// +----------+----------+-----+----------+-----------+-----------+-----+-----------+-----------------+
-// | Entry #1 | Entry #2 | ... | Entry #N | Offset #1 | Offset #2 | ... | Offset #N | num_of_elements |
-// +----------+----------+-----+----------+-----------+-----------+-----+-----------+-----------------+
+// +-------------------------------------------------------------------------------------------------------------+
+// |                                           Block                                                             |
+// +--------------------------------------+----------------------------------------------+-----------------------+
+// |             Data Section             |              Offset Section                  |         Extra         |
+// +----------+----------+-----+----------+----------------+-----------+-----+-----------+-----------------------+
+// | entry #1 | entry #2 | ... | entry #N | offset(u16) #1 | offset #2 | ... | offset #N |  num_of_elements(u16) |
+// +----------+----------+-----+----------+----------------+-----------+-----+-----------+-----------------------+
 //
 public record Block(byte @NotNull [] data, short @NotNull [] offsets) implements Measurable, Encoder {
 
@@ -28,9 +29,9 @@ public record Block(byte @NotNull [] data, short @NotNull [] offsets) implements
 
         // read offset section
         final short[] offsets = new short[numOfElements];
-        cursor -= numOfElements * 2;
+        cursor -= numOfElements * SIZE_OF_U16;
         for (int i = 0; i < numOfElements; i++) {
-            int idx = cursor + 2 * i;
+            int idx = cursor + i * SIZE_OF_U16;
             offsets[i] = (short) (buf[idx] << 8 | buf[idx + 1] & 0xFF);
         }
 
@@ -46,7 +47,7 @@ public record Block(byte @NotNull [] data, short @NotNull [] offsets) implements
         int dataLength = data.length;
         int numOfElements = offsets.length;
 
-        final byte[] buf = new byte[dataLength + (2 * numOfElements) + SIZE_OF_U16];
+        final byte[] buf = new byte[dataLength + (numOfElements * SIZE_OF_U16) + SIZE_OF_U16];
 
         // write data section
         System.arraycopy(data, 0, buf, 0, dataLength);
@@ -97,11 +98,11 @@ public record Block(byte @NotNull [] data, short @NotNull [] offsets) implements
         }
 
         //
-        // +-------------------------------------------------------------------+-----+
-        // |                           Entry #1                                | ... |
-        // +--------------+---------------+----------------+-------------------+-----+
-        // | key_len (2B) | key (key_len) | value_len (2B) | value (value_len) | ... |
-        // +--------------+---------------+----------------+-------------------+-----+
+        // +-----------------------------------------------------------------+-----+
+        // |                           Entry #1                              | ... |
+        // +--------------+--------------+----------------+------------------+-----+
+        // | key_len(u16) | key(key_len) | value_len(u16) | value(value_len) | ... |
+        // +--------------+--------------+----------------+------------------+-----+
         //
         public boolean put(byte @NotNull [] key, byte @NotNull [] value) {
             // NOTICE
@@ -158,7 +159,7 @@ public record Block(byte @NotNull [] data, short @NotNull [] offsets) implements
             int offsetsLength = offsetsByteList.size() >>> 1;
             final short[] offsets = new short[offsetsLength];
             for (int i = 0; i < offsetsLength; i++) {
-                offsets[i] = (short) (offsetsByteList.get(2 * i) << 8 | offsetsByteList.get(2 * i + 1) & 0xFF);
+                offsets[i] = (short) (offsetsByteList.get(i * SIZE_OF_U16) << 8 | offsetsByteList.get(i * SIZE_OF_U16 + 1) & 0xFF);
             }
 
             return new Block(data, offsets);

@@ -10,13 +10,13 @@ import static io.geekya215.lamination.Constants.SIZE_OF_U32;
 import static io.geekya215.lamination.Constants.SIZE_OF_U64;
 
 //
-// +-----------------------------------------------------------------+
-// |                           Bloom Filter                          |
-// +--------+---------------------+---------------------+------------+
-// | bitset | false_positive (8B) | num_of_element (4B) | crc32 (4B) |
-// +--------+---------------------+---------------------+------------+
+// +------------------------------------------------------------------+
+// |                           Bloom Filter                           |
+// +--------+---------------------+----------------------+------------+
+// | bitset | false_positive(u64) | num_of_elements(u32) | crc32(u32) |
+// +--------+---------------------+----------------------+------------+
 //
-public final class BloomFilter {
+public final class BloomFilter implements Encoder {
     private static final double DEFAULT_FALSE_POSITIVE = 0.03;
 
     private final @NotNull BitSet bitSet;
@@ -102,6 +102,7 @@ public final class BloomFilter {
         return true;
     }
 
+    @Override
     public byte @NotNull [] encode() {
         byte[] bitSetBuf = bitSet.toByteArray();
         int bitSetBufLength = bitSetBuf.length;

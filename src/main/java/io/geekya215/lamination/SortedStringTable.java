@@ -17,15 +17,32 @@ import java.util.zip.CRC32;
 import static io.geekya215.lamination.Constants.*;
 
 //
-// +-------------------------------+-------------------------------+-------------------------+
-// |         Block Section         |          Meta Section         |          Extra          |
-// +------------+-----+------------+-------------------------------+-------------------------+
-// | data block | ... | data block |            metadata           | meta block offset (u32) |
-// +------------+-----+------------+-------------------------------+-------------------------+
+// +--------------------------------------------------+
+// |               Sorted String Table                |
+// +-------------------+------------------+-----------+
+// |   Block Section   |   Meta Section   |   Extra   |
+// +-------------------+------------------+-----------+
 //
+// +-----------------------------------------------------+
+// |                  Block Section                      |
+// +----------+------------+-----+----------+------------+
+// | block #1 | crc32(u32) | ... | block #N | crc32(u32) |
+// +----------+------------+-----+----------+------------+
+//
+// +--------------------------------------------------+
+// |                Meta Block Section                |
+// +---------------+-----+---------------+------------+
+// | meta_block #1 | ... | meta_block #N | crc32(u32) |
+// +---------------+-----+---------------+------------+
+//
+// +------------------------------------------------------------------+
+// |                        Extra Section                             |
+// +------------------------+--------------+--------------------------+
+// | meta_block_offset(u32) | bloom_filter | bloom_filter_offset(u32) |
+// +------------------------+--------------+--------------------------+
+//
+
 public final class SortedStringTable implements Closeable {
-    // Fixme
-    // should close file resource
     private final @NotNull FileObject file;
     private final @NotNull List<MetaBlock> metaBlocks;
     private final @NotNull Cache<Long, Block> blockCache;
@@ -34,8 +51,6 @@ public final class SortedStringTable implements Closeable {
     private final byte @NotNull [] lastKey;
     private final int id;
     private final int metaBlockOffset;
-    // Todo
-    // add filter and block cache
 
     public SortedStringTable(
             @NotNull FileObject file,
@@ -198,8 +213,6 @@ public final class SortedStringTable implements Closeable {
 
         public void generateBlock() {
             final byte[] buf = blockBuilder.build().encode();
-            // Todo
-            // invoke new block builder or add clear method block builder
             blockBuilder = new Block.BlockBuilder(blockSize);
 
             metaBlocks.add(new MetaBlock(dataBlockBytes.size(), firstKey, lastKey));
@@ -393,13 +406,13 @@ public final class SortedStringTable implements Closeable {
     }
 
     //
-    // +---------------------------------------------------------------------------+-----+
-    // |                                  MetaBlock #1                             |     |
-    // |             +------------------------------+------------------------------+ ... |
-    // |             |          first key           |           last key           |     |
-    // +-------------+--------------+---------------+--------------+---------------+-----+
-    // | offset (4B) | key_len (2B) | key (key_len) | key_len (2B) | key (key_len) | ... |
-    // +-------------+--------------+---------------+--------------+---------------+-----+
+    // +-----------------------------------------------------------------------------+-----+
+    // |                                  Meta Block #1                              |     |
+    // |             +-------------------------------+-------------------------------+ ... |
+    // |             |          First Key            |           Last Key            |     |
+    // +-------------+---------------+---------------+---------------+---------------+-----+
+    // | offset(u32) | key_len (u16) | key (key_len) | key_len (u16) | key (key_len) | ... |
+    // +-------------+---------------+---------------+---------------+---------------+-----+
     //
     public record MetaBlock(int offset, byte @NotNull [] firstKey, byte @NotNull [] lastKey) {
         public static byte @NotNull [] encode(List<MetaBlock> metaBlocks) {
