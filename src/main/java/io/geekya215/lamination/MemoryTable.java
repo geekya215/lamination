@@ -7,6 +7,7 @@ import io.geekya215.lamination.tuple.Tuple2;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.Closeable;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -18,7 +19,7 @@ import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public final class MemoryTable {
+public final class MemoryTable implements Closeable {
     static final Comparator<byte[]> DEFAULT_COMPARATOR = Arrays::compare;
     private final int id;
     private final @NotNull ConcurrentSkipListMap<byte[], byte[]> skipList;
@@ -84,6 +85,12 @@ public final class MemoryTable {
         return new MemoryTableIterator(result);
     }
 
+    public void flush(@NotNull SortedStringTable.SortedStringTableBuilder builder) {
+        for (Map.Entry<byte[], byte[]> entry : skipList.entrySet()) {
+            builder.put(entry.getKey(), entry.getValue());
+        }
+    }
+
     public void syncWAL() throws IOException {
         if (wal != null) {
             wal.sync();
@@ -100,6 +107,14 @@ public final class MemoryTable {
 
     public boolean isEmpty() {
         return skipList.isEmpty();
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (wal != null) {
+            wal.sync();
+            wal.close();
+        }
     }
 
     public static final class MemoryTableIterator implements StorageIterator {
