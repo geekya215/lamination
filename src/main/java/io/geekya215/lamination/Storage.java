@@ -12,7 +12,7 @@ public final class Storage {
     private final @NotNull List<MemoryTable> immutableMemoryTables;
     private final @NotNull List<Integer> level0SortedStringTables;
     private final @NotNull List<Tuple2<Integer, List<Integer>>> levels;
-    private final @NotNull Map<Integer, SortedStringTable> SortedStringTables;
+    private final @NotNull Map<Integer, SortedStringTable> sortedStringTables;
     private @NotNull MemoryTable memoryTable;
 
     public Storage(
@@ -25,7 +25,7 @@ public final class Storage {
         this.immutableMemoryTables = immutableMemoryTable;
         this.level0SortedStringTables = level0SST;
         this.levels = levels;
-        this.SortedStringTables = sortedStringTables;
+        this.sortedStringTables = sortedStringTables;
     }
 
     public static @NotNull Storage create(@NotNull Options options) {
@@ -53,6 +53,6 @@ public final class Storage {
     }
 
     public @NotNull Map<Integer, SortedStringTable> getSortedStringTables() {
-        return SortedStringTables;
+        return sortedStringTables;
     }
 }

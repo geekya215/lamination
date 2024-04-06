@@ -17,7 +17,7 @@ import static io.geekya215.lamination.Constants.SIZE_OF_U16;
 // | Entry #1 | Entry #2 | ... | Entry #N | Offset #1 | Offset #2 | ... | Offset #N | num_of_elements |
 // +----------+----------+-----+----------+-----------+-----------+-----+-----------+-----------------+
 //
-public record Block(byte @NotNull [] data, short @NotNull [] offsets) {
+public record Block(byte @NotNull [] data, short @NotNull [] offsets) implements Measurable, Encoder {
 
     public static @NotNull Block decode(byte @NotNull [] buf) {
         int cursor = buf.length;
@@ -41,6 +41,7 @@ public record Block(byte @NotNull [] data, short @NotNull [] offsets) {
         return new Block(data, offsets);
     }
 
+    @Override
     public byte @NotNull [] encode() {
         int dataLength = data.length;
         int numOfElements = offsets.length;
@@ -72,6 +73,13 @@ public record Block(byte @NotNull [] data, short @NotNull [] offsets) {
         return buf;
     }
 
+    // Notice
+    // estimate size not equal encode byte buf length
+    @Override
+    public int estimateSize() {
+        return data.length + offsets.length * SIZE_OF_U16;
+    }
+
     public static final class BlockBuilder {
         private final @NotNull List<Byte> dataByteList;
         // use list of byte for offset because JDK cached all byte value
@@ -88,11 +96,13 @@ public record Block(byte @NotNull [] data, short @NotNull [] offsets) {
             return dataByteList.size() + offsetsByteList.size() + SIZE_OF_U16;
         }
 
-        // +---------------------------------------------------------------+-----+
-        // |                           Entry #1                            | ... |
-        // +--------------+--------------+----------------+----------------+-----+
-        // | key_len (2B) | key (keylen) | value_len (2B) | value (varlen) | ... |
-        // +--------------+--------------+----------------+----------------+-----+
+        //
+        // +-------------------------------------------------------------------+-----+
+        // |                           Entry #1                                | ... |
+        // +--------------+---------------+----------------+-------------------+-----+
+        // | key_len (2B) | key (key_len) | value_len (2B) | value (value_len) | ... |
+        // +--------------+---------------+----------------+-------------------+-----+
+        //
         public boolean put(byte @NotNull [] key, byte @NotNull [] value) {
             // NOTICE
             // for reducing call hierarchy check key if empty at engine

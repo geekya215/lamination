@@ -23,7 +23,7 @@ import static io.geekya215.lamination.Constants.*;
 // | data block | ... | data block |            metadata           | meta block offset (u32) |
 // +------------+-----+------------+-------------------------------+-------------------------+
 //
-public final class SortedStringTable {
+public final class SortedStringTable implements Closeable {
     // Fixme
     // should close file resource
     private final @NotNull FileObject file;
@@ -151,6 +151,11 @@ public final class SortedStringTable {
 
     public int numberOfBlock() {
         return metaBlocks.size();
+    }
+
+    @Override
+    public void close() throws IOException {
+        file.close();
     }
 
     public static final class SortedStringTableBuilder {
