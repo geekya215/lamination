@@ -30,7 +30,7 @@ import static io.geekya215.lamination.Constants.*;
 // +----------+------------+-----+----------+------------+
 //
 // +--------------------------------------------------+
-// |                Meta Block Section                |
+// |                    Meta Section                  |
 // +---------------+-----+---------------+------------+
 // | meta_block #1 | ... | meta_block #N | crc32(u32) |
 // +---------------+-----+---------------+------------+
@@ -93,7 +93,7 @@ public final class SortedStringTable implements Closeable {
     }
 
     public @NotNull Block readBlockCache(int blockIndex) throws IOException {
-        long key = (id & 0xFFFFFFFFL << 32) | blockIndex;
+        long key = ((id & 0xFFFFFFFFL) << 32) | blockIndex;
         Block cachedBlock = blockCache.get(key);
         if (cachedBlock == null) {
             Block block = readBlock(blockIndex);

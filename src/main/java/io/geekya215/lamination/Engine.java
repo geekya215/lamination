@@ -89,6 +89,21 @@ public final class Engine implements Closeable {
         } catch (InterruptedException e) {
             flushThread.shutdownNow();
         }
+
+        // Todo
+        // persist in memory data
+
+        // release resource
+        readLock.lock();
+        try {
+            storage.getMemoryTable().close();
+
+            for (SortedStringTable sst : storage.getSortedStringTables().values()) {
+                sst.close();
+            }
+        } finally {
+            readLock.unlock();
+        }
     }
 
     public static @NotNull Path getPathOfWAL(@NotNull Path path, int id) {
@@ -175,6 +190,78 @@ public final class Engine implements Closeable {
 
     public void delete(byte @NotNull [] key) throws IOException {
         put(key, DELETE_TOMBSTONE);
+    }
+
+    boolean rangeOverlap(
+            @NotNull Bound<byte[]> lower,
+            @NotNull Bound<byte[]> upper,
+            byte @NotNull [] firstKey,
+            byte @NotNull [] lastKey) {
+        switch (upper) {
+            case Bound.Excluded<byte[]>(byte[] key) when Arrays.compare(key, firstKey) <= 0 -> {
+                return false;
+            }
+            case Bound.Included<byte[]>(byte[] key) when Arrays.compare(key, firstKey) < 0 -> {
+                return false;
+            }
+            default -> {}
+        }
+
+        switch (lower) {
+            case Bound.Excluded<byte[]>(byte[] key) when Arrays.compare(key, lastKey) >= 0 -> {
+                return false;
+            }
+            case Bound.Included<byte[]>(byte[] key) when Arrays.compare(key, lastKey) > 0 -> {
+                return false;
+            }
+            default -> {}
+        }
+
+        return true;
+    }
+
+    public @NotNull StorageIterator scan(@NotNull Bound<byte[]> lower, @NotNull Bound<byte[]> upper) throws IOException {
+        readLock.lock();
+        try {
+            List<MemoryTable> immutableMemoryTables = storage.getImmutableMemoryTables();
+            List<StorageIterator> memoryTablesIters = new ArrayList<>(immutableMemoryTables.size() + 1);
+            for (int i = immutableMemoryTables.size() - 1; i >= 0; i--) {
+                MemoryTable immutableMemoryTable = immutableMemoryTables.get(i);
+                memoryTablesIters.add(immutableMemoryTable.scan(lower, upper));
+            }
+            memoryTablesIters.add(storage.getMemoryTable().scan(lower, upper));
+            StorageIterator memoryTableIter = MergeIterator.create(memoryTablesIters);
+
+            List<StorageIterator> level0SSTIters = new ArrayList<>(storage.getLevel0SortedStringTables().size());
+
+            for (Integer sstId : storage.getLevel0SortedStringTables()) {
+                SortedStringTable sst = storage.getSortedStringTables().get(sstId);
+                if (rangeOverlap(lower, upper, sst.getFirstKey(), sst.getLastKey())) {
+                    StorageIterator iter = switch (lower) {
+                        case Bound.Included<byte[]>(byte[] key) -> SortedStringTable.SortedStringTableIterator.createAndSeekToKey(sst, key);
+                        case Bound.Excluded<byte[]>(byte[] key) -> {
+                            SortedStringTable.SortedStringTableIterator tmpIter = SortedStringTable.SortedStringTableIterator.createAndSeekToKey(sst, key);
+                            if (tmpIter.isValid() && Arrays.compare(tmpIter.key(), key) == 0) {
+                                tmpIter.next();
+                            }
+                            yield tmpIter;
+                        }
+                        default -> SortedStringTable.SortedStringTableIterator.createAndSeekToFirst(sst);
+                    };
+                    level0SSTIters.add(iter);
+                }
+            }
+
+            StorageIterator sstIter = MergeIterator.create(level0SSTIters);
+
+            TwoMergeIterator<StorageIterator, StorageIterator> twoMergeIter = TwoMergeIterator.create(memoryTableIter, sstIter);
+
+            return LsmIterator.create(twoMergeIter, upper);
+            // Todo
+            // scan in level1 ~ levelN sst
+        } finally {
+            readLock.unlock();
+        }
     }
 
     void tryFreeze(int estimateSize) throws IOException {

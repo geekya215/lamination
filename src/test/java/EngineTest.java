@@ -1,6 +1,5 @@
-import io.geekya215.lamination.Engine;
-import io.geekya215.lamination.MemoryTable;
-import io.geekya215.lamination.Options;
+import io.geekya215.lamination.*;
+import io.geekya215.lamination.tuple.Tuple2;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -10,6 +9,7 @@ import java.util.List;
 import java.util.concurrent.Executors;
 
 import static io.geekya215.lamination.Constants.KB;
+import static io.geekya215.lamination.Constants.MB;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class EngineTest {
@@ -119,5 +119,173 @@ public class EngineTest {
         assertNull(engine.get("2".getBytes()));
         assertArrayEquals("33".getBytes(), engine.get("3".getBytes()));
         assertArrayEquals("4".getBytes(), engine.get("4".getBytes()));
+    }
+
+    @Test
+    void testEngineAutoFlushMemoryTable() throws IOException, InterruptedException {
+        Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false));
+        String v = "1".repeat(1000);
+        for (int i = 0; i < 6000; i++) {
+            engine.put("%d".formatted(i).getBytes(), v.getBytes());
+        }
+
+        Thread.sleep(1000);
+
+        assertFalse(engine.getStorage().getLevel0SortedStringTables().isEmpty());
+
+        engine.close();
+    }
+
+    @Test
+    void testEnginScanIncluded2Excluded() throws IOException {
+        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false))) {
+            for (int i = 0; i < 1000; i++) {
+                engine.put("key_%05d".formatted(i).getBytes(), "value_%05d".formatted(i).getBytes());
+            }
+
+            StorageIterator iter = engine.scan(Bound.included("key_00010".getBytes()), Bound.excluded("key_00100".getBytes()));
+
+            for (int i = 10; i < 100; i++) {
+                assertTrue(iter.isValid());
+                assertArrayEquals("value_%05d".formatted(i).getBytes(), iter.value());
+                iter.next();
+            }
+        }
+    }
+
+    @Test
+    void testEnginScanIncluded2Included() throws IOException {
+        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false))) {
+            for (int i = 0; i < 1000; i++) {
+                engine.put("key_%05d".formatted(i).getBytes(), "value_%05d".formatted(i).getBytes());
+            }
+
+            StorageIterator iter = engine.scan(Bound.included("key_00010".getBytes()), Bound.included("key_00100".getBytes()));
+
+            for (int i = 10; i <= 100; i++) {
+                assertTrue(iter.isValid());
+                assertArrayEquals("value_%05d".formatted(i).getBytes(), iter.value());
+                iter.next();
+            }
+        }
+    }
+
+    @Test
+    void testEnginScanIncluded2Unbound() throws IOException {
+        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false))) {
+            for (int i = 0; i < 1000; i++) {
+                engine.put("key_%05d".formatted(i).getBytes(), "value_%05d".formatted(i).getBytes());
+            }
+
+            StorageIterator iter = engine.scan(Bound.included("key_00010".getBytes()), Bound.unbound());
+
+            for (int i = 10; i < 1000; i++) {
+                assertTrue(iter.isValid());
+                assertArrayEquals("value_%05d".formatted(i).getBytes(), iter.value());
+                iter.next();
+            }
+        }
+    }
+
+    @Test
+    void testEnginScanExcluded2Excluded() throws IOException {
+        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false))) {
+            for (int i = 0; i < 1000; i++) {
+                engine.put("key_%05d".formatted(i).getBytes(), "value_%05d".formatted(i).getBytes());
+            }
+
+            StorageIterator iter = engine.scan(Bound.excluded("key_00010".getBytes()), Bound.excluded("key_00100".getBytes()));
+
+            for (int i = 10 + 1; i < 100; i++) {
+                assertTrue(iter.isValid());
+                assertArrayEquals("value_%05d".formatted(i).getBytes(), iter.value());
+                iter.next();
+            }
+        }
+    }
+
+    @Test
+    void testEnginScanExcluded2Included() throws IOException {
+        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false))) {
+            for (int i = 0; i < 1000; i++) {
+                engine.put("key_%05d".formatted(i).getBytes(), "value_%05d".formatted(i).getBytes());
+            }
+
+            StorageIterator iter = engine.scan(Bound.excluded("key_00010".getBytes()), Bound.included("key_00100".getBytes()));
+
+            for (int i = 10 + 1; i <= 100; i++) {
+                assertTrue(iter.isValid());
+                assertArrayEquals("value_%05d".formatted(i).getBytes(), iter.value());
+                iter.next();
+            }
+        }
+    }
+
+    @Test
+    void testEnginScanExcluded2Unbound() throws IOException {
+        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false))) {
+            for (int i = 0; i < 1000; i++) {
+                engine.put("key_%05d".formatted(i).getBytes(), "value_%05d".formatted(i).getBytes());
+            }
+
+            StorageIterator iter = engine.scan(Bound.excluded("key_00010".getBytes()), Bound.unbound());
+
+            for (int i = 10 + 1; i < 1000; i++) {
+                assertTrue(iter.isValid());
+                assertArrayEquals("value_%05d".formatted(i).getBytes(), iter.value());
+                iter.next();
+            }
+        }
+    }
+
+    @Test
+    void testEnginScanUnbound2Unbound() throws IOException {
+        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false))) {
+            for (int i = 0; i < 1000; i++) {
+                engine.put("key_%05d".formatted(i).getBytes(), "value_%05d".formatted(i).getBytes());
+            }
+
+            StorageIterator iter = engine.scan(Bound.unbound(), Bound.unbound());
+
+            for (int i = 0; i < 1000; i++) {
+                assertTrue(iter.isValid());
+                assertArrayEquals("value_%05d".formatted(i).getBytes(), iter.value());
+                iter.next();
+            }
+        }
+    }
+
+    @Test
+    void testEnginScanUnbound2Included() throws IOException {
+        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false))) {
+            for (int i = 0; i < 1000; i++) {
+                engine.put("key_%05d".formatted(i).getBytes(), "value_%05d".formatted(i).getBytes());
+            }
+
+            StorageIterator iter = engine.scan(Bound.unbound(), Bound.included("key_00100".getBytes()));
+
+            for (int i = 0; i <= 100; i++) {
+                assertTrue(iter.isValid());
+                assertArrayEquals("value_%05d".formatted(i).getBytes(), iter.value());
+                iter.next();
+            }
+        }
+    }
+
+    @Test
+    void testEnginScanUnbound2Excluded() throws IOException {
+        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false))) {
+            for (int i = 0; i < 1000; i++) {
+                engine.put("key_%05d".formatted(i).getBytes(), "value_%05d".formatted(i).getBytes());
+            }
+
+            StorageIterator iter = engine.scan(Bound.unbound(), Bound.excluded("key_00100".getBytes()));
+
+            for (int i = 0; i < 100; i++) {
+                assertTrue(iter.isValid());
+                assertArrayEquals("value_%05d".formatted(i).getBytes(), iter.value());
+                iter.next();
+            }
+        }
     }
 }
