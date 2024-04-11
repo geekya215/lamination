@@ -1,4 +1,5 @@
 import io.geekya215.lamination.*;
+import io.geekya215.lamination.compact.CompactStrategy;
 import io.geekya215.lamination.tuple.Tuple2;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -18,7 +19,7 @@ public class EngineTest {
 
     @Test
     void testEngineGetPutDelete() throws IOException {
-        Engine engine = Engine.open(tmpDir, new Options(2 * KB, 2, 4 * KB, false));
+        Engine engine = Engine.open(tmpDir, new Options(2 * KB, 2, 4 * KB, false, new CompactStrategy.NoCompact()));
 
         assertNull(engine.get("0".getBytes()));
 
@@ -38,7 +39,7 @@ public class EngineTest {
 
     @Test
     void testEngineForceFreeze() throws IOException {
-        Engine engine = Engine.open(tmpDir, new Options(2 * KB, 2, 4 * KB, false));
+        Engine engine = Engine.open(tmpDir, new Options(2 * KB, 2, 4 * KB, false, new CompactStrategy.NoCompact()));
 
         engine.put("1".getBytes(), "1".getBytes());
         engine.put("2".getBytes(), "2".getBytes());
@@ -60,7 +61,7 @@ public class EngineTest {
 
     @Test
     void testEngineFreezeOnCapacityInSingleThread() throws IOException {
-        Engine engine = Engine.open(tmpDir, new Options(2 * KB, 1000, KB, false));
+        Engine engine = Engine.open(tmpDir, new Options(2 * KB, 1000, KB, false, new CompactStrategy.NoCompact()));
         for (int i = 0; i < 1000; i++) {
             final byte[] buf = String.format("%05d", i).getBytes();
             engine.put(buf, buf);
@@ -78,7 +79,7 @@ public class EngineTest {
 
     @Test
     void testEngineFreezeOnCapacityInMultiThread() {
-        Engine engine = Engine.open(tmpDir, new Options(2 * KB, 1000, KB, false));
+        Engine engine = Engine.open(tmpDir, new Options(2 * KB, 1000, KB, false, new CompactStrategy.NoCompact()));
         for (int i = 0; i < 1000; i++) {
             final byte[] buf = String.format("%05d", i).getBytes();
             Executors.newVirtualThreadPerTaskExecutor().submit(() -> {
@@ -96,7 +97,7 @@ public class EngineTest {
 
     @Test
     void testEngineGetFromImmutableMemoryTable() throws IOException {
-        Engine engine = Engine.open(tmpDir, new Options(2 * KB, 1000, KB, false));
+        Engine engine = Engine.open(tmpDir, new Options(2 * KB, 1000, KB, false, new CompactStrategy.NoCompact()));
         assertNull(engine.get("0".getBytes()));
 
         engine.put("1".getBytes(), "1".getBytes());
@@ -123,7 +124,7 @@ public class EngineTest {
 
     @Test
     void testEngineAutoFlushMemoryTable() throws IOException, InterruptedException {
-        Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false));
+        Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false, new CompactStrategy.NoCompact()));
         String v = "1".repeat(1000);
         for (int i = 0; i < 6000; i++) {
             engine.put("%d".formatted(i).getBytes(), v.getBytes());
@@ -138,7 +139,7 @@ public class EngineTest {
 
     @Test
     void testEnginScanIncluded2Excluded() throws IOException {
-        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false))) {
+        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false, new CompactStrategy.NoCompact()))) {
             for (int i = 0; i < 1000; i++) {
                 engine.put("key_%05d".formatted(i).getBytes(), "value_%05d".formatted(i).getBytes());
             }
@@ -155,7 +156,7 @@ public class EngineTest {
 
     @Test
     void testEnginScanIncluded2Included() throws IOException {
-        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false))) {
+        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false, new CompactStrategy.NoCompact()))) {
             for (int i = 0; i < 1000; i++) {
                 engine.put("key_%05d".formatted(i).getBytes(), "value_%05d".formatted(i).getBytes());
             }
@@ -172,7 +173,7 @@ public class EngineTest {
 
     @Test
     void testEnginScanIncluded2Unbound() throws IOException {
-        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false))) {
+        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false, new CompactStrategy.NoCompact()))) {
             for (int i = 0; i < 1000; i++) {
                 engine.put("key_%05d".formatted(i).getBytes(), "value_%05d".formatted(i).getBytes());
             }
@@ -189,7 +190,7 @@ public class EngineTest {
 
     @Test
     void testEnginScanExcluded2Excluded() throws IOException {
-        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false))) {
+        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false, new CompactStrategy.NoCompact()))) {
             for (int i = 0; i < 1000; i++) {
                 engine.put("key_%05d".formatted(i).getBytes(), "value_%05d".formatted(i).getBytes());
             }
@@ -206,7 +207,7 @@ public class EngineTest {
 
     @Test
     void testEnginScanExcluded2Included() throws IOException {
-        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false))) {
+        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false, new CompactStrategy.NoCompact()))) {
             for (int i = 0; i < 1000; i++) {
                 engine.put("key_%05d".formatted(i).getBytes(), "value_%05d".formatted(i).getBytes());
             }
@@ -223,7 +224,7 @@ public class EngineTest {
 
     @Test
     void testEnginScanExcluded2Unbound() throws IOException {
-        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false))) {
+        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false, new CompactStrategy.NoCompact()))) {
             for (int i = 0; i < 1000; i++) {
                 engine.put("key_%05d".formatted(i).getBytes(), "value_%05d".formatted(i).getBytes());
             }
@@ -240,7 +241,7 @@ public class EngineTest {
 
     @Test
     void testEnginScanUnbound2Unbound() throws IOException {
-        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false))) {
+        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false, new CompactStrategy.NoCompact()))) {
             for (int i = 0; i < 1000; i++) {
                 engine.put("key_%05d".formatted(i).getBytes(), "value_%05d".formatted(i).getBytes());
             }
@@ -257,7 +258,7 @@ public class EngineTest {
 
     @Test
     void testEnginScanUnbound2Included() throws IOException {
-        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false))) {
+        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false, new CompactStrategy.NoCompact()))) {
             for (int i = 0; i < 1000; i++) {
                 engine.put("key_%05d".formatted(i).getBytes(), "value_%05d".formatted(i).getBytes());
             }
@@ -274,7 +275,7 @@ public class EngineTest {
 
     @Test
     void testEnginScanUnbound2Excluded() throws IOException {
-        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false))) {
+        try (Engine engine = Engine.open(tmpDir, new Options(4 * KB, 2, MB, false, new CompactStrategy.NoCompact()))) {
             for (int i = 0; i < 1000; i++) {
                 engine.put("key_%05d".formatted(i).getBytes(), "value_%05d".formatted(i).getBytes());
             }
