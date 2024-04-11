@@ -1,5 +1,6 @@
 package io.geekya215.lamination;
 
+import io.geekya215.lamination.compact.CompactStrategy;
 import io.geekya215.lamination.tuple.Tuple2;
 import org.jetbrains.annotations.NotNull;
 
@@ -29,7 +30,17 @@ public final class Storage {
     }
 
     public static @NotNull Storage create(@NotNull Options options) {
-        return new Storage(MemoryTable.create(0), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new HashMap<>());
+        List<Tuple2<Integer, List<Integer>>> levels = switch (options.strategy()) {
+            case CompactStrategy.Simple(_, _, int maxLevel) -> {
+                List<Tuple2<Integer, List<Integer>>> res = new ArrayList<>(maxLevel);
+                for (int level = 1; level <= maxLevel; level++) {
+                    res.add(Tuple2.of(level, new ArrayList<>()));
+                }
+                yield res;
+            }
+            default -> new ArrayList<>();
+        };
+        return new Storage(MemoryTable.create(0), new ArrayList<>(), new ArrayList<>(), levels, new HashMap<>());
     }
 
     public @NotNull MemoryTable getMemoryTable() {
