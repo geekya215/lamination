@@ -1,10 +1,13 @@
 package io.geekya215.lamination;
 
+import io.geekya215.lamination.compact.*;
+import io.geekya215.lamination.tuple.Tuple2;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -35,6 +38,8 @@ public final class Engine implements Closeable {
     private final @NotNull Path path;
     private final @NotNull AtomicInteger sstId;
     private final @NotNull ExecutorService flushThread;
+    private final @NotNull Compactor compactor;
+    private final @NotNull ExecutorService compactThread;
 
     public Engine(
             @NotNull Storage storage,
@@ -44,7 +49,9 @@ public final class Engine implements Closeable {
             @NotNull Options options,
             @NotNull Path path,
             @NotNull AtomicInteger sstId,
-            @NotNull ExecutorService flushThread) {
+            @NotNull ExecutorService flushThread,
+            @NotNull Compactor compactor,
+            @NotNull ExecutorService compactThread) {
         this.storage = storage;
         this.rwLock = rwLock;
         this.readLock = rwLock.readLock();
@@ -55,20 +62,24 @@ public final class Engine implements Closeable {
         this.path = path;
         this.sstId = sstId;
         this.flushThread = flushThread;
+        this.compactor = compactor;
+        this.compactThread = compactThread;
     }
 
     public static @NotNull Engine open(@NotNull Path path, @NotNull Options options) {
         Cache<Long, Block> blockCache = new LRUCache<>(32 * MB);
         ScheduledExecutorService flushThread = Executors.newSingleThreadScheduledExecutor();
-        Engine engine =
-                new Engine(
-                        Storage.create(options),
-                        new ReentrantReadWriteLock(),
-                        new ReentrantLock(), blockCache,
-                        options,
-                        path,
-                        new AtomicInteger(),
-                        flushThread);
+        ScheduledExecutorService compactThread = Executors.newSingleThreadScheduledExecutor();
+
+        Compactor compactor =  switch (options.strategy()) {
+            case CompactStrategy.Simple simple -> new SimpleCompactor(simple);
+            case CompactStrategy.NoCompact noCompact -> new NoCompactCompactor(noCompact);
+            default -> throw new IllegalArgumentException("unsupported compaction strategy :" + options.strategy());
+        };
+
+        Engine engine = new Engine(
+                Storage.create(options), new ReentrantReadWriteLock(), new ReentrantLock(), blockCache,
+                options, path, new AtomicInteger(), flushThread, compactor, compactThread);
         flushThread.scheduleWithFixedDelay(() -> {
             try {
                 engine.triggerFlush();
@@ -76,6 +87,15 @@ public final class Engine implements Closeable {
                 throw new RuntimeException(e);
             }
         }, 10, 50, TimeUnit.MILLISECONDS);
+
+        compactThread.scheduleWithFixedDelay(() -> {
+            try {
+                engine.triggerCompact();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }, 10, 100, TimeUnit.MILLISECONDS);
+
         return engine;
     }
 
@@ -89,6 +109,16 @@ public final class Engine implements Closeable {
         } catch (InterruptedException e) {
             flushThread.shutdownNow();
         }
+
+        compactThread.shutdown();
+        try {
+            if (!compactThread.awaitTermination(100, TimeUnit.MILLISECONDS)) {
+                compactThread.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            compactThread.shutdownNow();
+        }
+
 
         // Todo
         // persist in memory data
@@ -123,6 +153,10 @@ public final class Engine implements Closeable {
     }
 
     public void put(byte @NotNull [] key, byte @NotNull [] value) throws IOException {
+        if (key.length == 0) {
+            throw new IllegalArgumentException("key must not be empty");
+        }
+
         int approximateSize;
         readLock.lock();
         try {
@@ -342,6 +376,156 @@ public final class Engine implements Closeable {
             }
         } finally {
             lock.unlock();
+        }
+    }
+
+    private @NotNull List<SortedStringTable> buildCompactedSSTFromIterator(@NotNull StorageIterator iter, boolean compactToBottomLevel) throws IOException {
+        SortedStringTable.SortedStringTableBuilder builder = null;
+        final List<SortedStringTable> ssts = new ArrayList<>();
+
+        while (iter.isValid()) {
+            if (builder == null) {
+                builder = new SortedStringTable.SortedStringTableBuilder(options.blockSize());
+            }
+
+            if (compactToBottomLevel) {
+                // only put not deleted value
+                if (iter.value().length != 0) {
+                    builder.put(iter.key(), iter.value());
+                }
+            } else {
+                builder.put(iter.key(), iter.value());
+            }
+
+            iter.next();
+
+            if (builder.estimateSize() >= options.sstSize()) {
+                int sstId = getNextSSTId();
+                SortedStringTable sst = builder.build(sstId, blockCache, getPathOfSST(path, sstId));
+                ssts.add(sst);
+                builder = null;
+            }
+        }
+
+        if (builder != null) {
+            int sstId = getNextSSTId();
+            SortedStringTable sst = builder.build(sstId, blockCache, getPathOfSST(path, sstId));
+            ssts.add(sst);
+        }
+
+        return ssts;
+    }
+
+    public @NotNull List<SortedStringTable> compact(@NotNull CompactionTask task) throws IOException {
+        readLock.lock();
+        try {
+            final Map<Integer, SortedStringTable> ssts = storage.getSortedStringTables();
+            switch (task) {
+                case CompactionTask.SimpleTask simple -> {
+                    if (simple.upperLevel() == 0) {
+                        final List<StorageIterator> upperIters = new ArrayList<>(simple.upperLevelSSTIds().size());
+                        for (Integer upperSSTId : simple.upperLevelSSTIds()) {
+                            upperIters.add(SortedStringTable.SortedStringTableIterator.createAndSeekToFirst(ssts.get(upperSSTId)));
+                        }
+                        final StorageIterator upperIter = MergeIterator.create(upperIters);
+
+                        final List<SortedStringTable> lowerSSTs = new ArrayList<>(simple.lowerLevelSSTIds().size());
+                        for (Integer lowerSSTId : simple.lowerLevelSSTIds()) {
+                            lowerSSTs.add(ssts.get(lowerSSTId));
+                        }
+
+                        final ConcatIterator lowerIter = ConcatIterator.createAndSeekToFirst(lowerSSTs);
+                        return buildCompactedSSTFromIterator(TwoMergeIterator.create(upperIter, lowerIter), simple.isLowerLevelBottomLevel());
+                    } else {
+                        final List<SortedStringTable> upperSSTs = new ArrayList<>(simple.upperLevelSSTIds().size());
+                        for (Integer upperSSTId : simple.upperLevelSSTIds()) {
+                            upperSSTs.add(ssts.get(upperSSTId));
+                        }
+
+                        final ConcatIterator upperIter = ConcatIterator.createAndSeekToFirst(upperSSTs);
+
+                        final List<SortedStringTable> lowerSSTs = new ArrayList<>(simple.lowerLevelSSTIds().size());
+                        for (Integer lowerSSTId : simple.lowerLevelSSTIds()) {
+                            lowerSSTs.add(ssts.get(lowerSSTId));
+                        }
+
+                        final ConcatIterator lowerIter = ConcatIterator.createAndSeekToFirst(lowerSSTs);
+                        return buildCompactedSSTFromIterator(TwoMergeIterator.create(upperIter, lowerIter), simple.isLowerLevelBottomLevel());
+                    }
+                }
+                default -> throw new UnsupportedOperationException();
+            }
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    public void forceFullCompaction() {
+        readLock.lock();
+        try {
+
+        } finally {
+            readLock.unlock();
+        }
+
+        List<SortedStringTable> newSSTs;
+
+        lock.lock();
+        try {
+            writeLock.lock();
+            try {
+
+            } finally {
+                writeLock.unlock();
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    void triggerCompact() throws IOException {
+        readLock.lock();
+        try {
+            final CompactionTask task = compactor.generateCompactionTask(storage);
+            if (task == null) {
+                return ;
+            } else {
+                final List<SortedStringTable> compactedSSTs = compact(task);
+                final List<Integer> outputs = compactedSSTs.stream().map(SortedStringTable::getId).toList();
+                List<SortedStringTable> removedSSTs;
+                lock.lock();
+                try {
+                    // Todo
+                    // should we use double check here?
+                    readLock.lock();
+                    try {
+                        final List<Integer> newSSTIds = new ArrayList<>();
+                        for (SortedStringTable compactedSST : compactedSSTs) {
+                            newSSTIds.add(compactedSST.getId());
+                            storage.getSortedStringTables().put(compactedSST.getId(), compactedSST);
+                        }
+
+                        final List<Integer> filesToRemove = compactor.doCompact(storage, task, outputs);
+                        removedSSTs = new ArrayList<>(filesToRemove.size());
+                        for (Integer file : filesToRemove) {
+                            SortedStringTable removedSST = storage.getSortedStringTables().remove(file);
+                            removedSSTs.add(removedSST);
+                        }
+                    } finally {
+                        readLock.unlock();
+                    }
+                } finally {
+                    lock.unlock();
+                }
+
+                // delete removed sst
+                for (SortedStringTable removedSST : removedSSTs) {
+                    removedSST.close();
+                    Files.deleteIfExists(getPathOfSST(path, removedSST.getId()));
+                }
+            }
+        } finally {
+            readLock.unlock();
         }
     }
 }

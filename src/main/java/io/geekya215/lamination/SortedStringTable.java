@@ -173,7 +173,7 @@ public final class SortedStringTable implements Closeable {
         file.close();
     }
 
-    public static final class SortedStringTableBuilder {
+    public static final class SortedStringTableBuilder implements Measurable {
         private @NotNull Block.BlockBuilder blockBuilder;
         private final @NotNull List<Byte> dataBlockBytes;
         private final @NotNull List<Long> keysHash;
@@ -277,6 +277,11 @@ public final class SortedStringTable implements Closeable {
             FileObject file = FileObject.create(path, buf);
 
             return new SortedStringTable(file, metaBlocks, blockCache, bloomFilter, metaBlocks.getFirst().firstKey(), metaBlocks.getLast().lastKey(), id, metaBlockOffset);
+        }
+
+        @Override
+        public int estimateSize() {
+            return dataBlockBytes.size();
         }
     }
 
