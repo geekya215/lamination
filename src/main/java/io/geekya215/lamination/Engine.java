@@ -2,6 +2,7 @@ package io.geekya215.lamination;
 
 import io.geekya215.lamination.compact.*;
 import io.geekya215.lamination.iterator.*;
+import io.geekya215.lamination.tuple.Tuple2;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -211,8 +212,23 @@ public final class Engine implements Closeable {
             }
 
             MergeIterator l0Iterator = MergeIterator.create(level0SSTIterator);
-            if (l0Iterator.isValid()) {
-                return l0Iterator.value();
+
+            List<StorageIterator> levelIters = new ArrayList<>(storage.getLevels().size());
+            for (Tuple2<Integer, List<Integer>> level : storage.getLevels()) {
+                List<SortedStringTable> levelSSTs = new ArrayList<>(level.t2().size());
+                for (Integer sstId : level.t2()) {
+                    SortedStringTable sst = storage.getSortedStringTables().get(sstId);
+                    if (Arrays.compare(sst.getFirstKey(), key) <= 0 && Arrays.compare(key, sst.getLastKey()) <= 0 && sst.getBloomFilter().contain(key)) {
+                        levelSSTs.add(sst);
+                    }
+                }
+                levelIters.add(ConcatIterator.createAndSeekToKey(levelSSTs, key));
+            }
+
+            TwoMergeIterator<MergeIterator, MergeIterator> iter = TwoMergeIterator.create(l0Iterator, MergeIterator.create(levelIters));
+
+            if (iter.isValid() && Arrays.compare(iter.key(), key) == 0 && Arrays.compare(iter.value(), DELETE_TOMBSTONE) != 0) {
+                return iter.value();
             }
 
             // not find
@@ -286,13 +302,37 @@ public final class Engine implements Closeable {
                 }
             }
 
-            StorageIterator sstIter = MergeIterator.create(level0SSTIters);
+            StorageIterator level0Iter = MergeIterator.create(level0SSTIters);
 
-            TwoMergeIterator<StorageIterator, StorageIterator> twoMergeIter = TwoMergeIterator.create(memoryTableIter, sstIter);
+            List<StorageIterator> levelIters = new ArrayList<>(storage.getLevels().size());
+            for (Tuple2<Integer, List<Integer>> level : storage.getLevels()) {
+                List<SortedStringTable> levelSSTs = new ArrayList<>(level.t2().size());
+                for (Integer sstId : level.t2()) {
+                    SortedStringTable sst = storage.getSortedStringTables().get(sstId);
+                    if (rangeOverlap(lower, upper, sst.getFirstKey(), sst.getLastKey())) {
+                        levelSSTs.add(sst);
+                    }
+                }
+                StorageIterator levelIter =  switch (lower) {
+                    case Bound.Included<byte[]>(byte[] key) -> ConcatIterator.createAndSeekToKey(levelSSTs, key);
+                    case Bound.Excluded<byte[]>(byte[] key) -> {
+                        ConcatIterator tmpIter = ConcatIterator.createAndSeekToKey(levelSSTs, key);
+                        if (tmpIter.isValid() && Arrays.compare(tmpIter.key(), key) == 0) {
+                            tmpIter.next();
+                        }
+                        yield tmpIter;
+                    }
+                    default -> ConcatIterator.createAndSeekToFirst(levelSSTs);
+                };
+                levelIters.add(levelIter);
+            }
 
-            return LsmIterator.create(twoMergeIter, upper);
+            TwoMergeIterator<StorageIterator, StorageIterator> memoryToLevel0Iter = TwoMergeIterator.create(memoryTableIter, level0Iter);
             // Todo
-            // scan in level1 ~ levelN sst
+            // cast to StorageIterator or use raw generic ?
+            TwoMergeIterator<StorageIterator, StorageIterator> iter = TwoMergeIterator.create(memoryToLevel0Iter, MergeIterator.create(levelIters));
+
+            return LsmIterator.create(iter, upper);
         } finally {
             readLock.unlock();
         }
