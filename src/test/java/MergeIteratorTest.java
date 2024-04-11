@@ -1,4 +1,4 @@
-import io.geekya215.lamination.MergeIterator;
+import io.geekya215.lamination.iterator.MergeIterator;
 import io.geekya215.lamination.tuple.Tuple2;
 import org.junit.jupiter.api.Test;
 

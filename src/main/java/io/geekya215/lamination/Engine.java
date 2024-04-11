@@ -1,7 +1,7 @@
 package io.geekya215.lamination;
 
 import io.geekya215.lamination.compact.*;
-import io.geekya215.lamination.tuple.Tuple2;
+import io.geekya215.lamination.iterator.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 

@@ -1,6 +1,6 @@
 import io.geekya215.lamination.*;
 import io.geekya215.lamination.compact.CompactStrategy;
-import io.geekya215.lamination.tuple.Tuple2;
+import io.geekya215.lamination.iterator.StorageIterator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

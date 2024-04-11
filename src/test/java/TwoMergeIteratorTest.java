@@ -1,5 +1,5 @@
-import io.geekya215.lamination.StorageIterator;
-import io.geekya215.lamination.TwoMergeIterator;
+import io.geekya215.lamination.iterator.StorageIterator;
+import io.geekya215.lamination.iterator.TwoMergeIterator;
 import io.geekya215.lamination.tuple.Tuple2;
 import org.junit.jupiter.api.Test;
 

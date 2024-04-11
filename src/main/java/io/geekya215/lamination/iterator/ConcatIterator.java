@@ -1,5 +1,6 @@
-package io.geekya215.lamination;
+package io.geekya215.lamination.iterator;
 
+import io.geekya215.lamination.SortedStringTable;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 

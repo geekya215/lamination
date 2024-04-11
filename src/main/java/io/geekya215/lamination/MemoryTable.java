@@ -3,6 +3,7 @@ package io.geekya215.lamination;
 import io.geekya215.lamination.Bound.Excluded;
 import io.geekya215.lamination.Bound.Included;
 import io.geekya215.lamination.Bound.Unbounded;
+import io.geekya215.lamination.iterator.StorageIterator;
 import io.geekya215.lamination.tuple.Tuple2;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;

@@ -1,6 +1,7 @@
 package io.geekya215.lamination;
 
 import io.geekya215.lamination.exception.Crc32MismatchException;
+import io.geekya215.lamination.iterator.StorageIterator;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.Closeable;

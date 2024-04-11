@@ -1,4 +1,4 @@
-import io.geekya215.lamination.StorageIterator;
+import io.geekya215.lamination.iterator.StorageIterator;
 import io.geekya215.lamination.tuple.Tuple2;
 import org.jetbrains.annotations.NotNull;
 
