@@ -2,6 +2,8 @@ package io.geekya215.lamination;
 
 import io.geekya215.lamination.compact.*;
 import io.geekya215.lamination.iterator.*;
+import io.geekya215.lamination.recover.Manifest;
+import io.geekya215.lamination.recover.Track;
 import io.geekya215.lamination.tuple.Tuple2;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -10,10 +12,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -28,6 +27,7 @@ import static io.geekya215.lamination.Constants.MB;
 public final class Engine implements Closeable {
     static final String WAL_FILE_FORMAT = "%05d.wal";
     static final String SST_FILE_FORMAT = "%05d.sst";
+    static final String MANIFEST_FILE_NAME = "MANIFEST";
     static final byte[] DELETE_TOMBSTONE = EMPTY_BYTE_ARRAY;
     private final @NotNull Storage storage;
     private final @NotNull ReentrantReadWriteLock rwLock;
@@ -38,6 +38,7 @@ public final class Engine implements Closeable {
     private final @NotNull Options options;
     private final @NotNull Path path;
     private final @NotNull AtomicInteger sstId;
+    private final @NotNull Manifest manifest;
     private final @NotNull ExecutorService flushThread;
     private final @NotNull Compactor compactor;
     private final @NotNull ExecutorService compactThread;
@@ -50,6 +51,7 @@ public final class Engine implements Closeable {
             @NotNull Options options,
             @NotNull Path path,
             @NotNull AtomicInteger sstId,
+            @NotNull Manifest manifest,
             @NotNull ExecutorService flushThread,
             @NotNull Compactor compactor,
             @NotNull ExecutorService compactThread) {
@@ -62,25 +64,78 @@ public final class Engine implements Closeable {
         this.options = options;
         this.path = path;
         this.sstId = sstId;
+        this.manifest = manifest;
         this.flushThread = flushThread;
         this.compactor = compactor;
         this.compactThread = compactThread;
     }
 
-    public static @NotNull Engine open(@NotNull Path path, @NotNull Options options) {
+    public static @NotNull Engine open(@NotNull Path path, @NotNull Options options) throws IOException {
         Cache<Long, Block> blockCache = new LRUCache<>(32 * MB);
         ScheduledExecutorService flushThread = Executors.newSingleThreadScheduledExecutor();
         ScheduledExecutorService compactThread = Executors.newSingleThreadScheduledExecutor();
+        int nextSSTId = 1;
 
         Compactor compactor =  switch (options.strategy()) {
             case CompactStrategy.Simple simple -> new SimpleCompactor(simple);
             case CompactStrategy.NoCompact noCompact -> new NoCompactCompactor(noCompact);
-            default -> throw new IllegalArgumentException("unsupported compaction strategy :" + options.strategy());
+            default -> throw new IllegalArgumentException("unsupported compaction strategy: " + options.strategy());
         };
 
+        Storage storage = Storage.create(options);
+        Manifest manifest;
+
+        Path manifestPath = path.resolve(MANIFEST_FILE_NAME);
+        if (Files.exists(manifestPath)) {
+            Tuple2<Manifest, List<Track>> recover = Manifest.recover(manifestPath);
+            manifest = recover.t1();
+            List<Track> tracks = recover.t2();
+            TreeSet<Integer> memoryTables = new TreeSet<>();
+            for (Track track : tracks) {
+                switch (track) {
+                    case Track.Flush(int id) -> {
+                        memoryTables.remove(id);
+                        if (compactor.flushToLevel0()) {
+                            storage.getLevel0SortedStringTables().add(id);
+                        } else {
+                            // Todo
+                        }
+                    }
+                    case Track.Create(int id) -> {
+                        nextSSTId = Math.max(nextSSTId, id);
+                        memoryTables.add(id);
+                    }
+                    case Track.Compact(CompactionTask task, List<Integer> outputs) -> {
+                        compactor.doCompact(storage, task, outputs);
+                        nextSSTId = Math.max(nextSSTId, Collections.max(outputs));
+                    }
+                }
+            }
+            int sstCnt = 0;
+            for (Integer sstId : storage.getLevel0SortedStringTables()) {
+                SortedStringTable sst = SortedStringTable.open(sstId, blockCache, SortedStringTable.FileObject.open(getPathOfSST(path, sstId)));
+                storage.getSortedStringTables().put(sstId, sst);
+                sstCnt += 1;
+            }
+            for (Tuple2<Integer, List<Integer>> level : storage.getLevels()) {
+                for (Integer sstId : level.t2()) {
+                    SortedStringTable sst = SortedStringTable.open(sstId, blockCache, SortedStringTable.FileObject.open(getPathOfSST(path, sstId)));
+                    storage.getSortedStringTables().put(sstId, sst);
+                    sstCnt += 1;
+                }
+            }
+
+            nextSSTId += 1;
+            System.out.println(sstCnt + " SSTs opened");
+
+        } else {
+            manifest = Manifest.create(manifestPath);
+        }
+
         Engine engine = new Engine(
-                Storage.create(options), new ReentrantReadWriteLock(), new ReentrantLock(), blockCache,
-                options, path, new AtomicInteger(), flushThread, compactor, compactThread);
+                storage, new ReentrantReadWriteLock(), new ReentrantLock(), blockCache,
+                options, path, new AtomicInteger(nextSSTId), manifest, flushThread, compactor, compactThread);
+
         flushThread.scheduleWithFixedDelay(() -> {
             try {
                 engine.triggerFlush();
@@ -371,6 +426,8 @@ public final class Engine implements Closeable {
             writeLock.unlock();
         }
         oldMemoryTable.syncWAL();
+
+        manifest.addTrack(new Track.Create(memoryTableId));
     }
 
     void triggerFlush() throws IOException {
@@ -414,6 +471,8 @@ public final class Engine implements Closeable {
             } finally {
                 writeLock.unlock();
             }
+
+            manifest.addTrack(new Track.Flush(sstId));
         } finally {
             lock.unlock();
         }
@@ -538,8 +597,8 @@ public final class Engine implements Closeable {
                     // Todo
                     // should we use double check here?
                     readLock.lock();
+                    final List<Integer> newSSTIds = new ArrayList<>();
                     try {
-                        final List<Integer> newSSTIds = new ArrayList<>();
                         for (SortedStringTable compactedSST : compactedSSTs) {
                             newSSTIds.add(compactedSST.getId());
                             storage.getSortedStringTables().put(compactedSST.getId(), compactedSST);
@@ -554,6 +613,7 @@ public final class Engine implements Closeable {
                     } finally {
                         readLock.unlock();
                     }
+                    manifest.addTrack(new Track.Compact(task, newSSTIds));
                 } finally {
                     lock.unlock();
                 }

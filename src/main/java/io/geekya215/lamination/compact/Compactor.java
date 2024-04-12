@@ -13,7 +13,7 @@ public sealed abstract class Compactor permits SimpleCompactor, LeveledCompactor
         this.strategy = strategy;
     }
 
-    protected boolean flushToLevel0() {
+    public boolean flushToLevel0() {
         return switch (this) {
             case SimpleCompactor _, LeveledCompactor _, NoCompactCompactor _ -> true;
             default -> false;

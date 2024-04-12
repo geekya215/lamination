@@ -77,7 +77,7 @@ public final class SimpleCompactor extends Compactor {
             levels.get(simpleTask.upperLevel() - 1).t2().clear();
         }
 
-        // add lower level to remove list and set to output
+        // add lower level to remove list and set to outputs
         fileToRemove.addAll(levels.get(simpleTask.lowerLevel() - 1).t2());
         levels.get(simpleTask.lowerLevel() - 1).t2().clear();
         levels.get(simpleTask.lowerLevel() - 1).t2().addAll(output);
