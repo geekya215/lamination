@@ -35,6 +35,8 @@ public class EngineTest {
         assertNull(engine.get("1".getBytes()));
 
         engine.delete("0".getBytes());
+
+        engine.close();
     }
 
     @Test
@@ -57,6 +59,8 @@ public class EngineTest {
 
         assertEquals(2, immutableMemoryTables.size());
         assertEquals(9, immutableMemoryTables.get(1).getApproximateSize());
+
+        engine.close();
     }
 
     @Test
@@ -75,13 +79,16 @@ public class EngineTest {
         }
 
         assertTrue(immutableMemoryTables.size() > numOfImmutableMemoryTable);
+
+        engine.close();
     }
 
     @Test
-    void testEngineFreezeOnCapacityInMultiThread() {
+    void testEngineFreezeOnCapacityInMultiThread() throws IOException, InterruptedException {
         Engine engine = Engine.open(tmpDir, new Options(2 * KB, 1000, KB, false, new CompactStrategy.NoCompact()));
         for (int i = 0; i < 1000; i++) {
             final byte[] buf = String.format("%05d", i).getBytes();
+            Thread.sleep(10);
             Executors.newVirtualThreadPerTaskExecutor().submit(() -> {
                 try {
                     engine.put(buf, buf);
@@ -93,6 +100,8 @@ public class EngineTest {
         List<MemoryTable> immutableMemoryTables = engine.getStorage().getImmutableMemoryTables();
         int numOfImmutableMemoryTable = immutableMemoryTables.size();
         assertTrue(numOfImmutableMemoryTable > 0);
+
+        engine.close();
     }
 
     @Test
@@ -120,6 +129,8 @@ public class EngineTest {
         assertNull(engine.get("2".getBytes()));
         assertArrayEquals("33".getBytes(), engine.get("3".getBytes()));
         assertArrayEquals("4".getBytes(), engine.get("4".getBytes()));
+
+        engine.close();
     }
 
     @Test
