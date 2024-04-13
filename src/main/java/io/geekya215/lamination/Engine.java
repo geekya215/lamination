@@ -23,6 +23,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static io.geekya215.lamination.Constants.EMPTY_BYTE_ARRAY;
 import static io.geekya215.lamination.Constants.MB;
+import static java.util.FormatProcessor.FMT;
 
 public final class Engine implements Closeable {
     static final String WAL_FILE_FORMAT = "%05d.wal";
@@ -128,8 +129,35 @@ public final class Engine implements Closeable {
             nextSSTId += 1;
             System.out.println(sstCnt + " SSTs opened");
 
+            // recover memory table
+            if (options.enableWAL()) {
+                int walCnt = 0;
+                for (int memoryTableId : memoryTables) {
+                    MemoryTable memoryTable = MemoryTable.recoverFromWAL(memoryTableId, getPathOfWAL(path, memoryTableId));
+                    if (!memoryTable.isEmpty()) {
+                        storage.getImmutableMemoryTables().add(memoryTable);
+                        walCnt += 1;
+                    } else {
+                        // Fixme
+                        // empty wal id in manifest create track also remove
+                        memoryTable.close();
+                        Files.deleteIfExists(getPathOfWAL(path, memoryTableId));
+                    }
+                }
+                System.out.println(walCnt + " WALs recovered");
+                storage.setMemoryTable(MemoryTable.createWithWAL(nextSSTId, getPathOfWAL(path, nextSSTId)));
+            } else {
+                storage.setMemoryTable(MemoryTable.create(nextSSTId));
+            }
+
+            nextSSTId += 1;
+
         } else {
+            if (options.enableWAL()) {
+                storage.setMemoryTable(MemoryTable.createWithWAL(storage.getMemoryTable().getId(), getPathOfWAL(path, storage.getMemoryTable().getId())));
+            }
             manifest = Manifest.create(manifestPath);
+            manifest.addTrack(new Track.Create(storage.getMemoryTable().getId()));
         }
 
         Engine engine = new Engine(
@@ -150,7 +178,7 @@ public final class Engine implements Closeable {
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
-        }, 10, 100, TimeUnit.MILLISECONDS);
+        }, 10, 50, TimeUnit.MILLISECONDS);
 
         return engine;
     }
@@ -470,6 +498,11 @@ public final class Engine implements Closeable {
                 storage.getSortedStringTables().put(sstId, table);
             } finally {
                 writeLock.unlock();
+            }
+
+            if (options.enableWAL()) {
+                oldestImmutableMemoryTable.close();
+                Files.deleteIfExists(getPathOfWAL(path, sstId));
             }
 
             manifest.addTrack(new Track.Flush(sstId));
