@@ -661,4 +661,13 @@ public final class Engine implements Closeable {
             readLock.unlock();
         }
     }
+
+    public void dump() {
+        System.out.println(FMT."MEM -> \{storage.getMemoryTable().getId()}");
+        System.out.println(FMT."IMM -> \{storage.getImmutableMemoryTables().stream().map(MemoryTable::getId).toList()}");
+        System.out.println(FMT."L 0 -> \{storage.getLevel0SortedStringTables()}");
+        for (Tuple2<Integer, List<Integer>> level : storage.getLevels()) {
+            System.out.println(FMT."L%2d\{level.t1()} -> \{level.t2()}");
+        }
+    }
 }
